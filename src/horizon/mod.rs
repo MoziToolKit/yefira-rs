@@ -87,15 +87,35 @@ impl YefiraMod {
     }
 
     /// Lifecycle hook: Server started / world loaded.
-    pub fn on_server_started(&self) {
+    pub fn on_server_started(&self, host: &dyn horizon_client::mod_api::Host) {
         log::info!("Yefira: Horizon server started, initializing Live Sync");
+
+        if let Some(world_dir) = host.world_dir() {
+            let storage_path = crate::selection::get_world_storage_path(&world_dir);
+            let loaded = self
+                .selection_manager
+                .load_saved_selection(&storage_path, None);
+            if loaded {
+                log::info!("Yefira: Restored saved selection for world {:?}", world_dir);
+                self.request_world_rescan();
+            }
+        } else if let Ok(config_dir) = host.config_dir() {
+            let storage_path = crate::selection::get_server_storage_path(&config_dir, "default");
+            let loaded = self
+                .selection_manager
+                .load_saved_selection(&storage_path, None);
+            if loaded {
+                self.request_world_rescan();
+            }
+        }
+
         if self.config.auto_start_on_world_load {
-            let host = self.config.host.clone();
+            let host_addr = self.config.host.clone();
             let port = self.config.port;
-            if let Err(e) = self.server_manager.start(&host, port) {
+            if let Err(e) = self.server_manager.start(&host_addr, port) {
                 log::error!(
                     "Yefira: Failed to auto-start WebSocket server on {}:{}: {}",
-                    host,
+                    host_addr,
                     port,
                     e
                 );
@@ -107,7 +127,7 @@ impl YefiraMod {
     pub fn on_server_stopping(&self) {
         log::info!("Yefira: Horizon server stopping, shutting down Live Sync");
         self.server_manager.stop();
-        self.selection_manager.clear();
+        self.selection_manager.reset_on_world_unload();
         self.delta_queue.clear();
     }
 

@@ -97,9 +97,9 @@ impl Hooks for YefiraModBridge {
     }
 
     /// Server starting: initialize WebSocket live sync server.
-    fn server_about_to_start(&self, _host: &mut dyn Host, _event: &mut ServerAboutToStartEvent) {
+    fn server_about_to_start(&self, host: &mut dyn Host, _event: &mut ServerAboutToStartEvent) {
         log::info!("Yefira: Horizon server starting, initializing live sync server");
-        yefira().on_server_started();
+        yefira().on_server_started(host);
     }
 
     /// Server stopping: shut down live sync server and clean up selections.
@@ -112,6 +112,31 @@ impl Hooks for YefiraModBridge {
     /// Server tick: flush pending voxel deltas and perform requested world baseline scans.
     fn server_tick(&self, host: &mut dyn Host, event: &mut ServerTickEvent<'_>) {
         if matches!(event.phase, ServerTickPhase::ServerTickEnd { .. }) {
+            // 0. Ensure active storage path is configured and saved selection restored
+            if yefira().selection_manager.active_storage_path().is_none() {
+                if let Some(world_dir) = host.world_dir() {
+                    let storage_path = crate::selection::get_world_storage_path(&world_dir);
+                    let loaded = yefira()
+                        .selection_manager
+                        .load_saved_selection(&storage_path, None);
+                    if loaded {
+                        log::info!(
+                            "Yefira: Loaded saved selection on server tick for world {:?}",
+                            world_dir
+                        );
+                        yefira().request_world_rescan();
+                    }
+                } else if let Ok(config_dir) = host.config_dir() {
+                    let storage_path =
+                        crate::selection::get_server_storage_path(&config_dir, "default");
+                    let loaded = yefira()
+                        .selection_manager
+                        .load_saved_selection(&storage_path, None);
+                    if loaded {
+                        yefira().request_world_rescan();
+                    }
+                }
+            }
             // 1. Process pending block changes (place, break, update)
             let dirty_blocks: Vec<(String, [i32; 3])> = {
                 let mut lock = self.pending_block_changes.lock();
