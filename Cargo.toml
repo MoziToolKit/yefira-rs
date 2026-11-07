@@ -19,6 +19,11 @@ thiserror = "2.0"
 log = "0.4"
 horizon-client = { git = "https://github.com/horizon-rust/horizon.git", rev = "f4858e8a25244093a84ec6468c3fd262ea0c3299", default-features = false }
 
+[patch.crates-io]
+wgpu-hal = { git = "https://github.com/horizon-rust/horizon.git", rev = "f4858e8a25244093a84ec6468c3fd262ea0c3299" }
+naga = { git = "https://github.com/horizon-rust/horizon.git", rev = "f4858e8a25244093a84ec6468c3fd262ea0c3299" }
+libmimalloc-sys = { git = "https://github.com/horizon-rust/horizon.git", rev = "f4858e8a25244093a84ec6468c3fd262ea0c3299" }
+
 [dev-dependencies]
 env_logger = "0.11"
 glam_mtk = { version = "0.34", package = "glam" }

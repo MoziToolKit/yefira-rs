@@ -2060,8 +2060,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "libmimalloc-sys"
 version = "0.1.49"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a45a52f43e1c16f667ccfe4dd8c85b7f7c204fd5e3bf46c5b0db9a5c3c0b8e9"
+source = "git+https://github.com/horizon-rust/horizon.git?rev=f4858e8a25244093a84ec6468c3fd262ea0c3299#f4858e8a25244093a84ec6468c3fd262ea0c3299"
 dependencies = [
  "cc",
  "cty",
@@ -2334,8 +2333,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 [[package]]
 name = "naga"
 version = "30.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a616d2fb8c89516ac2723a581f69d6c18576046bed761bd6b305e5618e6ae130"
+source = "git+https://github.com/horizon-rust/horizon.git?rev=f4858e8a25244093a84ec6468c3fd262ea0c3299#f4858e8a25244093a84ec6468c3fd262ea0c3299"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -4323,8 +4321,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6b7fb58561a792bc237628ba0792e332de418fefe145f13b5ed8201e6d52f58"
+source = "git+https://github.com/horizon-rust/horizon.git?rev=f4858e8a25244093a84ec6468c3fd262ea0c3299#f4858e8a25244093a84ec6468c3fd262ea0c3299"
 dependencies = [
  "android_system_properties",
  "arrayvec",

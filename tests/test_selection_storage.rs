@@ -107,6 +107,27 @@ fn test_python_mozitoolkit_live_ingestion() {
     )
     .unwrap();
 
+    // Dynamically locate MoziToolKit's utils/save/selection.py if available
+    let candidates = [
+        std::env::var("MOZITOOLKIT_DIR")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .map(|p| p.join("utils/save/selection.py")),
+        std::env::current_dir().ok().and_then(|p| {
+            p.parent()
+                .map(|parent| parent.join("MoziToolKit/utils/save/selection.py"))
+        }),
+        Some(std::path::PathBuf::from(
+            "/Volumes/Data/code_projects/mtk/MoziToolKit/utils/save/selection.py",
+        )),
+    ];
+    let selection_py = candidates.into_iter().flatten().find(|p| p.exists());
+    let Some(selection_py) = selection_py else {
+        eprintln!("MoziToolKit selection.py not found; skipping python live ingestion test.");
+        let _ = fs::remove_dir_all(&test_dir);
+        return;
+    };
+
     // Call Python directly using MoziToolKit's load_yefira_selection (loading selection.py directly without bpy)
     let python_script = format!(
         r#"
@@ -115,7 +136,7 @@ from pathlib import Path
 
 spec = importlib.util.spec_from_file_location(
     "selection",
-    "/Volumes/Data/code_projects/mtk/MoziToolKit/utils/save/selection.py"
+    r"{selection_py}"
 )
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
@@ -133,14 +154,29 @@ assert sel.size == (71, 65, 51), f"size mismatch: {{sel.size}}"
 assert sel.volume == 71 * 65 * 51, f"volume mismatch: {{sel.volume}}"
 print("PYTHON_MOZITOOLKIT_OK")
 "#,
+        selection_py = selection_py.display(),
         world_dir = test_dir.display()
     );
 
-    let output = std::process::Command::new("python3")
+    let python_cmd = if std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .is_ok()
+    {
+        "python3"
+    } else {
+        "python"
+    };
+
+    let Ok(output) = std::process::Command::new(python_cmd)
         .arg("-c")
         .arg(&python_script)
         .output()
-        .expect("Failed to execute python3");
+    else {
+        eprintln!("Python runner not available; skipping.");
+        let _ = fs::remove_dir_all(&test_dir);
+        return;
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
