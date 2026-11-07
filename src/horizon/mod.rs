@@ -1,5 +1,8 @@
 //! Horizon client and server mod integration adapter.
 
+#[cfg(feature = "horizon")]
+pub mod hooks;
+
 use std::sync::Arc;
 
 use crate::command::{execute_command, CommandOutput};
@@ -14,6 +17,7 @@ pub struct YefiraMod {
     pub selection_manager: Arc<SelectionManager>,
     pub delta_queue: Arc<DeltaQueue>,
     pub server_manager: Arc<WebSocketServerManager>,
+    pub world_provider: Arc<crate::scanner::TrackingWorldProvider>,
 }
 
 impl Default for YefiraMod {
@@ -32,12 +36,15 @@ impl YefiraMod {
             selection_manager.clone(),
             delta_queue.clone(),
         ));
+        let world_provider = Arc::new(crate::scanner::TrackingWorldProvider::new());
+        server_manager.set_provider(world_provider.clone());
 
         Self {
             config,
             selection_manager,
             delta_queue,
             server_manager,
+            world_provider,
         }
     }
 
@@ -87,6 +94,7 @@ impl YefiraMod {
         new_state: &str,
     ) {
         if self.selection_manager.dimension() == dimension {
+            self.world_provider.set_block(pos, new_state);
             self.server_manager.queue_delta_update(pos, new_state);
         }
     }

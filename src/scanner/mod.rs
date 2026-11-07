@@ -4,4 +4,4 @@ mod canonical;
 mod provider;
 
 pub use canonical::{BaselineScanResult, CanonicalVoxelScanner, ScanError};
-pub use provider::{InMemoryWorld, WorldBlockProvider};
+pub use provider::{InMemoryWorld, TrackingWorldProvider, WorldBlockProvider};

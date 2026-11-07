@@ -1,16 +1,18 @@
 //! Multi-client WebSocket Live Sync server conforming to RFC v3.1.
 
+use base64::Engine;
 use parking_lot::{Mutex, RwLock};
+use sha1::{Digest, Sha1};
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use tungstenite::protocol::WebSocket;
-use tungstenite::{accept, Message};
+use tungstenite::protocol::{Role, WebSocket};
+use tungstenite::Message;
 
 use super::delta_queue::DeltaQueue;
 use super::session::ClientSession;
@@ -328,6 +330,51 @@ impl Drop for WebSocketServerManager {
     }
 }
 
+fn perform_ws_handshake(mut stream: TcpStream) -> io::Result<WebSocket<TcpStream>> {
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut key = None;
+
+    loop {
+        let mut line = String::new();
+        let bytes_read = reader.read_line(&mut line)?;
+        if bytes_read == 0 || line == "\r\n" || line == "\n" {
+            break;
+        }
+        let lower = line.to_ascii_lowercase();
+        if lower.starts_with("sec-websocket-key:") {
+            if let Some((_, val)) = line.split_once(':') {
+                key = Some(val.trim().to_string());
+            }
+        }
+    }
+
+    let Some(key_str) = key else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Missing Sec-WebSocket-Key in WebSocket handshake",
+        ));
+    };
+
+    let mut hasher = Sha1::new();
+    hasher.update(key_str.as_bytes());
+    hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    let accept_hash = hasher.finalize();
+    let accept_b64 = base64::engine::general_purpose::STANDARD.encode(accept_hash);
+
+    let response = format!(
+        "HTTP/1.1 101 Switching Protocols\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Accept: {}\r\n\r\n",
+        accept_b64
+    );
+
+    stream.write_all(response.as_bytes())?;
+    stream.flush()?;
+
+    Ok(WebSocket::from_raw_socket(stream, Role::Server, None))
+}
+
 fn handle_client_connection(
     stream: TcpStream,
     session: Arc<ClientSession>,
@@ -340,7 +387,7 @@ fn handle_client_connection(
     let client_addr = session.addr;
     stream.set_nonblocking(false).ok();
 
-    let mut ws = match accept(stream) {
+    let mut ws = match perform_ws_handshake(stream) {
         Ok(ws) => ws,
         Err(e) => {
             log::error!("WebSocket handshake failed for {}: {}", client_addr, e);

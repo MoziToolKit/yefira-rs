@@ -2,7 +2,7 @@
 """
 Automated packaging pipeline for Yefira Live Sync (.hnmod) targeting Horizon.
 Generates an official, self-contained native mod bundle ready for drag-and-drop
-into Horizon Launcher or compilation with `horizon-launcher native-build`.
+into Horizon Launcher or installation into horizon-native-mods.
 """
 
 import argparse
@@ -97,9 +97,6 @@ path = "api"
         f.write(mixin_toml)
 
     # 2.2 api/ package (Completely Self-Contained Horizon Trait Mod)
-    # The launcher stages `bundle.api` into `stage/native-api/{id}`.
-    # Packaging all engine modules directly inside `api/src/` ensures
-    # it is fully self-contained without unresolved relative path dependencies.
     api_dir = mixins_dir / "api"
     api_dir.mkdir(parents=True, exist_ok=True)
     api_src_dir = api_dir / "src"
@@ -111,56 +108,33 @@ version = "{version}"
 edition = "2024"
 
 [dependencies]
-horizon-client = {{ git = "https://github.com/horizon-rust/horizon", rev = "{horizon_rev}" }}
+horizon-client = {{ git = "https://github.com/horizon-rust/horizon.git", rev = "{horizon_rev}" }}
 glam = {{ version = "0.30", features = ["serde"] }}
 xxhash-rust = {{ version = "0.8", features = ["xxh64"] }}
-tungstenite = {{ version = "0.30", features = ["handshake"] }}
+tungstenite = {{ version = "0.30", default-features = false }}
+sha1 = "0.10"
+base64 = "0.22"
 serde = {{ version = "1.0", features = ["derive"] }}
 serde_json = "1.0"
 parking_lot = "0.12"
 thiserror = "2.0"
 log = "0.4"
+
+[features]
+default = ["horizon"]
+horizon = ["dep:horizon-client"]
 """
     with open(api_dir / "Cargo.toml", "w", encoding="utf-8") as f:
         f.write(api_cargo_toml)
 
-    # Copy Trait mod lib.rs
-    bundle_api_src = yefira_root / "bundle" / "api" / "src" / "lib.rs"
-    if bundle_api_src.exists():
-        shutil.copy2(bundle_api_src, api_src_dir / "lib.rs")
-    else:
-        raise FileNotFoundError(f"Missing bundle source: {bundle_api_src}")
-
-    # Copy all engine modules into api/src/
+    # Copy canonical source tree from yefira_root/src/ into api/src/
     yefira_src = yefira_root / "src"
-    for item in os.listdir(yefira_src):
-        if item == "lib.rs":
-            continue
-        src_item = yefira_src / item
-        dst_item = api_src_dir / item
-        if src_item.is_dir():
-            shutil.copytree(src_item, dst_item)
-        else:
-            shutil.copy2(src_item, dst_item)
-
-    # Also keep bundle/ up to date in repository for CLI native-build
-    bundle_api_dir = yefira_root / "bundle" / "api"
-    with open(bundle_api_dir / "Cargo.toml", "w", encoding="utf-8") as f:
-        f.write(api_cargo_toml)
-    for item in os.listdir(yefira_src):
-        if item == "lib.rs":
-            continue
-        src_item = yefira_src / item
-        dst_item = bundle_api_dir / "src" / item
-        if dst_item.exists():
-            if dst_item.is_dir():
-                shutil.rmtree(dst_item)
-            else:
-                dst_item.unlink()
-        if src_item.is_dir():
-            shutil.copytree(src_item, dst_item)
-        else:
-            shutil.copy2(src_item, dst_item)
+    for root, dirs, files in os.walk(yefira_src):
+        rel_dir = Path(root).relative_to(yefira_src)
+        target_dir = api_src_dir / rel_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for file in files:
+            shutil.copy2(Path(root) / file, target_dir / file)
 
     # 3. Zip into .hnmod with deterministic Unix permissions (0o644)
     if hnmod_file.exists():
@@ -176,6 +150,9 @@ log = "0.4"
                 zinfo.compress_type = zipfile.ZIP_DEFLATED
                 with open(full_path, "rb") as f_in:
                     zf.writestr(zinfo, f_in.read())
+
+    # Clean up staging directory
+    shutil.rmtree(staging_dir, ignore_errors=True)
 
     print(f"✅ Generated bundle archive: {hnmod_file} ({hnmod_file.stat().st_size} bytes)")
 
@@ -236,9 +213,8 @@ def main():
 
     print("\n🎉 Packaging completed successfully!")
     print(f"👉 Target File: {hnmod_path}")
-    print("\nInstallation Methods:")
-    print("1. Drag & Drop into Horizon Launcher -> Instance -> Mods tab")
-    print(f"2. CLI Native Build: horizon-launcher native-build {yefira_root / 'bundle'} --instance <InstanceName> --trust-native-code")
+    print("\nInstallation:")
+    print("Drag & Drop this .hnmod file directly into Horizon Launcher (Mods tab), or copy to horizon-native-mods/.")
 
 
 if __name__ == "__main__":

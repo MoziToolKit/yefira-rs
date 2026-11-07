@@ -1,19 +1,4 @@
-//! Horizon Trait Mod implementation for Yefira Live Sync.
-
-pub mod command;
-pub mod config;
-pub mod horizon;
-pub mod protocol;
-pub mod scanner;
-pub mod selection;
-pub mod server;
-
-pub use config::YefiraConfig;
-pub use horizon::YefiraMod;
-pub use protocol::*;
-pub use scanner::{CanonicalVoxelScanner, WorldBlockProvider};
-pub use selection::{Direction, SelectionBox, SelectionManager};
-pub use server::{DeltaQueue, WebSocketServerManager};
+//! Horizon Trait Mod Hooks implementation.
 
 use std::sync::OnceLock;
 
@@ -23,9 +8,11 @@ use horizon_client::mod_api::{
     ServerTickEvent, ServerTickPhase, Text,
 };
 
+use crate::horizon::YefiraMod;
+
 static YEFIRA: OnceLock<YefiraMod> = OnceLock::new();
 
-fn yefira() -> &'static YefiraMod {
+pub fn yefira() -> &'static YefiraMod {
     YEFIRA.get_or_init(YefiraMod::default)
 }
 
@@ -34,7 +21,7 @@ pub fn hooks() -> Box<dyn Hooks> {
     Box::new(YefiraModBridge)
 }
 
-struct YefiraModBridge;
+pub struct YefiraModBridge;
 
 impl Hooks for YefiraModBridge {
     /// Server starting: initialize WebSocket live sync server.

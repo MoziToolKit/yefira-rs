@@ -27,9 +27,13 @@ pub use protocol::{
     PROTOCOL_VERSION,
 };
 pub use scanner::{
-    BaselineScanResult, CanonicalVoxelScanner, InMemoryWorld, ScanError, WorldBlockProvider,
+    BaselineScanResult, CanonicalVoxelScanner, InMemoryWorld, ScanError, TrackingWorldProvider,
+    WorldBlockProvider,
 };
 pub use selection::{Direction, SelectionBox, SelectionManager, SelectionStorageData};
 pub use server::{
     BaselineStreamer, BlockChangeRecord, ClientSession, DeltaQueue, WebSocketServerManager,
 };
+
+#[cfg(feature = "horizon")]
+pub use horizon::hooks::hooks;

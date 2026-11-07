@@ -77,3 +77,55 @@ impl WorldBlockProvider for InMemoryWorld {
         self.entities.get(&pos).cloned()
     }
 }
+
+/// Thread-safe tracking world provider that dynamically updates as blocks change in the game.
+#[derive(Debug)]
+pub struct TrackingWorldProvider {
+    pub blocks: parking_lot::RwLock<HashMap<[i32; 3], &'static str>>,
+    pub biomes: parking_lot::RwLock<HashMap<[i32; 3], &'static str>>,
+    pub default_biome: String,
+}
+
+impl Default for TrackingWorldProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TrackingWorldProvider {
+    pub fn new() -> Self {
+        Self {
+            blocks: parking_lot::RwLock::new(HashMap::new()),
+            biomes: parking_lot::RwLock::new(HashMap::new()),
+            default_biome: "minecraft:plains".to_string(),
+        }
+    }
+
+    pub fn set_block(&self, pos: [i32; 3], state: &str) {
+        let leaked: &'static str = Box::leak(state.to_string().into_boxed_str());
+        self.blocks.write().insert(pos, leaked);
+    }
+
+    pub fn set_biome(&self, quart_pos: [i32; 3], biome: &str) {
+        let leaked: &'static str = Box::leak(biome.to_string().into_boxed_str());
+        self.biomes.write().insert(quart_pos, leaked);
+    }
+}
+
+impl WorldBlockProvider for TrackingWorldProvider {
+    fn get_block_state(&self, pos: [i32; 3]) -> &str {
+        self.blocks
+            .read()
+            .get(&pos)
+            .copied()
+            .unwrap_or("minecraft:air")
+    }
+
+    fn get_quart_biome(&self, quart_pos: [i32; 3]) -> &str {
+        self.biomes
+            .read()
+            .get(&quart_pos)
+            .copied()
+            .unwrap_or(&self.default_biome)
+    }
+}
