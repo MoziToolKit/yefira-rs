@@ -8,22 +8,28 @@ into Horizon Launcher or installation into horizon-native-mods.
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
 
-DEFAULT_HORIZON_REV = "41f822b659789780f58d32c63ddfb6887ea1b8bf"
+DEFAULT_HORIZON_REV = "f4858e8a25244093a84ec6468c3fd262ea0c3299"
 DEFAULT_MIXINS_REV = "5a64af938ec86b00d53d16a408aabc0038fb3e57"
 DEFAULT_GAME = "26.3"
 MOD_ID = "yefira"
 
 
 def find_horizon_dir() -> Path | None:
+    if "HORIZON_DIR" in os.environ:
+        p = Path(os.environ["HORIZON_DIR"])
+        if p.exists() and (p / "Cargo.toml").exists():
+            return p
     candidates = [
         Path("/Volumes/Data/code_projects/mtk/horizon"),
         Path(__file__).resolve().parent.parent.parent / "horizon",
+        Path.cwd() / "horizon",
     ]
     for c in candidates:
         if c.exists() and (c / "Cargo.toml").exists():
@@ -43,6 +49,22 @@ def get_git_commit(repo_dir: Path) -> str | None:
     except Exception:
         pass
     return None
+
+
+def get_cargo_toml_meta(yefira_root: Path) -> tuple[str | None, str | None]:
+    """Extract (version, horizon_rev) from Cargo.toml if available."""
+    cargo_toml = yefira_root / "Cargo.toml"
+    if not cargo_toml.exists():
+        return None, None
+    try:
+        content = cargo_toml.read_text(encoding="utf-8")
+        version_m = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+        version = version_m.group(1) if version_m else None
+        rev_m = re.search(r'horizon-client\s*=\s*\{[^}]*rev\s*=\s*"([a-f0-9]{40})"', content)
+        rev = rev_m.group(1) if rev_m else None
+        return version, rev
+    except Exception:
+        return None, None
 
 
 def package_hnmod(
@@ -182,7 +204,7 @@ def main():
     parser = argparse.ArgumentParser(description="Package yefira-rs into an official Horizon .hnmod mod file.")
     parser.add_argument("--horizon", help="Pinned Horizon commit hash (40 hex chars)")
     parser.add_argument("--mixins", help="Pinned horizon-mixins commit hash (40 hex chars)", default=DEFAULT_MIXINS_REV)
-    parser.add_argument("--version", help="Mod semver version", default="0.1.0")
+    parser.add_argument("--version", help="Mod semver version (defaults to Cargo.toml version)")
     parser.add_argument("--out", help="Output directory", default="dist")
     parser.add_argument("--no-check", action="store_true", help="Skip running cargo-horizon-mod check")
 
@@ -191,11 +213,15 @@ def main():
     yefira_root = Path(__file__).resolve().parent.parent
     horizon_dir = find_horizon_dir()
 
+    toml_version, toml_rev = get_cargo_toml_meta(yefira_root)
+
+    version = args.version or toml_version or "0.1.0"
+
     horizon_rev = args.horizon
     if not horizon_rev and horizon_dir:
         horizon_rev = get_git_commit(horizon_dir)
     if not horizon_rev:
-        horizon_rev = DEFAULT_HORIZON_REV
+        horizon_rev = toml_rev or DEFAULT_HORIZON_REV
 
     output_dir = yefira_root / args.out
     hnmod_path = package_hnmod(
@@ -203,7 +229,7 @@ def main():
         output_dir=output_dir,
         horizon_rev=horizon_rev,
         mixins_rev=args.mixins,
-        version=args.version,
+        version=version,
         run_check=not args.no_check,
     )
 

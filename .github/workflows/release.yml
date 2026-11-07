@@ -1,0 +1,170 @@
+name: Build & Release Mod
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type (auto, rolling, or official)'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - rolling
+          - official
+      tag_name:
+        description: 'Custom tag name (optional, only for official release)'
+        required: false
+        default: ''
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-package:
+    name: Build & Verify .hnmod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Quality Gate (fmt, clippy)
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets -- -D warnings
+
+      - name: Run Tests
+        run: cargo test --no-fail-fast
+
+      - name: Package .hnmod Bundle
+        run: python3 tools/package_hnmod.py --no-check
+
+      - name: Upload .hnmod artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yefira-hnmod
+          path: dist/*.hnmod
+          if-no-files-found: error
+          retention-days: 3
+
+  publish-release:
+    name: Publish Release
+    needs: build-package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: yefira-hnmod
+          path: dist
+
+      - name: Generate Checksums
+        run: |
+          cd dist
+          sha256sum *.hnmod > SHA256SUMS.txt
+          echo "=== SHA256SUMS.txt ==="
+          cat SHA256SUMS.txt
+
+      - name: Determine Release Target
+        id: release_meta
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.release_type }}" = "official" ] || ([ "${{ inputs.release_type }}" = "auto" ] && [ -n "${{ inputs.tag_name }}" ]); then
+              TARGET_TAG="${{ inputs.tag_name }}"
+              if [ -z "$TARGET_TAG" ]; then
+                echo "::error::tag_name is required for official release"
+                exit 1
+              fi
+              IS_PRERELEASE="false"
+            else
+              TARGET_TAG="ci-latest"
+              IS_PRERELEASE="true"
+            fi
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            TARGET_TAG="${{ github.ref_name }}"
+            IS_PRERELEASE="false"
+          else
+            TARGET_TAG="ci-latest"
+            IS_PRERELEASE="true"
+          fi
+
+          echo "tag=$TARGET_TAG" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Target Release Tag: $TARGET_TAG (Pre-release: $IS_PRERELEASE)"
+
+      - name: Prune stale mod assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release_meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release '$TAG' does not exist yet; nothing to prune."
+            exit 0
+          fi
+
+          # Prune stale assets if names changed
+          mapfile -t existing < <(
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' | grep -E '\.hnmod$' || true
+          )
+          for name in "${existing[@]}"; do
+            if [ ! -f "dist/$name" ]; then
+              echo "Removing stale asset: $name"
+              gh release delete-asset "$TAG" "$name" --repo "$GITHUB_REPOSITORY" --yes
+            fi
+          done
+          echo "Checked ${#existing[@]} existing asset(s)."
+
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release_meta.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.release_meta.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          if [ "$TAG" = "ci-latest" ]; then
+            gh release view ci-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+              gh release create ci-latest --repo "$GITHUB_REPOSITORY" --prerelease \
+                --title "CI Rolling Release (ci-latest)" \
+                --notes "Automated Horizon Native Mod (.hnmod) package built from latest commit. Updated continuously."
+            gh release upload ci-latest dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            echo "Successfully updated rolling release ci-latest."
+          else
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $TAG exists, uploading assets..."
+              gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            else
+              echo "Creating new release $TAG..."
+              gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+                --title "yefira-rs $TAG" \
+                --generate-notes
+              gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            fi
+            echo "Successfully published official release $TAG."
+          fi

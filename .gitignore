@@ -9,3 +9,5 @@ __MACOSX/
 .AppleDouble
 .LSOverride
 Icon[]
+__pycache__/
+*.pyc

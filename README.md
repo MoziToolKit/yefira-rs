@@ -1,6 +1,8 @@
 # yefira-rs: High-Performance Minecraft Live Sync Mod for Horizon (Rust)
 
 [![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
+[![CI](https://github.com/MoziToolKit/yefira-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/MoziToolKit/yefira-rs/actions/workflows/ci.yml)
+[![Rolling Release](https://img.shields.io/github/v/release/MoziToolKit/yefira-rs?include_prereleases&label=rolling%20release&color=blue)](https://github.com/MoziToolKit/yefira-rs/releases/tag/ci-latest)
 [![RFC v3.1](https://img.shields.io/badge/protocol-RFC%20v3.1%20compliant-blue.svg)](../MoziToolKit/docs/live_sync/live_sync_protocol.md)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
