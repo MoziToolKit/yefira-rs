@@ -149,3 +149,30 @@ cargo fmt -- --check
 3. `test_cross_interoperability_with_libmozitoolkit_mtk_sync`: Binary packet decode/encode cross-compatibility with `mtk-sync`.
 4. `test_selection_math`: Bound canonicalization, coordinate safety, preset box, expand/shift operators, and JSON file persistence.
 5. `test_horizon_command_dispatch`: Subcommand execution and chat input parsing.
+
+---
+
+## 6. Packaging Pipeline & Client Installation (`.hnmod`)
+
+`yefira-rs` provides an automated packaging pipeline that compiles and bundles the mod into an official, self-contained Horizon Native Mod package (`dist/yefira-<version>.hnmod`).
+
+### Run Packaging Pipeline
+```bash
+python3 tools/package_hnmod.py
+```
+
+This pipeline automatically:
+1. Detects the local/target Horizon and mixins Git revisions.
+2. Constructs the standard `mixins/yefira/` bundle (including the `api/` Trait Mod bridge and standalone `core/` live sync engine).
+3. Generates the top-level `horizon-native.json` manifest conforming to schema 1.
+4. Produces a bit-perfect, deterministic Zip archive (`dist/yefira-0.1.0.hnmod`).
+5. Invokes Horizon's official mod checker (`cargo horizon-mod check`) to verify 100% compliance.
+
+### Installation into Horizon Game Client
+- **Option 1: Drag & Drop (GUI)**:
+  Open **Horizon Launcher** $\to$ Select Instance $\to$ **Mods** tab $\to$ Drag and drop `dist/yefira-0.1.0.hnmod` into the window $\to$ Click "Trust & Install".
+- **Option 2: CLI Native Build**:
+  ```bash
+  horizon-launcher native-build bundle/ --instance <InstanceName> --trust-native-code
+  ```
+

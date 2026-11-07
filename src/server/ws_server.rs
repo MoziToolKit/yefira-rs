@@ -1,11 +1,11 @@
 //! Multi-client WebSocket Live Sync server conforming to RFC v3.1.
 
-use crossbeam_channel::{bounded, Receiver};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::io;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -156,7 +156,7 @@ impl WebSocketServerManager {
                             }
 
                             let client_id = shared.next_client_id.fetch_add(1, Ordering::Relaxed);
-                            let (tx, rx) = bounded::<Vec<u8>>(1024);
+                            let (tx, rx) = sync_channel::<Vec<u8>>(1024);
                             let session = Arc::new(ClientSession::new(client_id, client_addr, tx));
 
                             shared.clients.lock().insert(client_id, session.clone());

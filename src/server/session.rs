@@ -1,15 +1,15 @@
 //! Per-client connection session tracking and state machine.
 
-use crossbeam_channel::Sender;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::SyncSender;
 use std::time::Instant;
 
 /// Active state of a connected DCC client (Blender / MoziToolKit / libmtk).
 pub struct ClientSession {
     pub id: usize,
     pub addr: SocketAddr,
-    pub sender: Sender<Vec<u8>>,
+    pub sender: SyncSender<Vec<u8>>,
     pub is_authenticated: AtomicBool,
     pub is_verified: AtomicBool,
     pub stream_gen: AtomicU64,
@@ -18,7 +18,7 @@ pub struct ClientSession {
 }
 
 impl ClientSession {
-    pub fn new(id: usize, addr: SocketAddr, sender: Sender<Vec<u8>>) -> Self {
+    pub fn new(id: usize, addr: SocketAddr, sender: SyncSender<Vec<u8>>) -> Self {
         Self {
             id,
             addr,
