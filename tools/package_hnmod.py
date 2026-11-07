@@ -96,10 +96,14 @@ path = "api"
     with open(mixins_dir / "horizon-mixin.toml", "w", encoding="utf-8") as f:
         f.write(mixin_toml)
 
-    # 2.2 api/ package (Horizon Trait Mod bridge)
+    # 2.2 api/ package (Completely Self-Contained Horizon Trait Mod)
+    # The launcher stages `bundle.api` into `stage/native-api/{id}`.
+    # Packaging all engine modules directly inside `api/src/` ensures
+    # it is fully self-contained without unresolved relative path dependencies.
     api_dir = mixins_dir / "api"
     api_dir.mkdir(parents=True, exist_ok=True)
-    (api_dir / "src").mkdir(parents=True, exist_ok=True)
+    api_src_dir = api_dir / "src"
+    api_src_dir.mkdir(parents=True, exist_ok=True)
 
     api_cargo_toml = f"""[package]
 name = "mod-{MOD_ID}"
@@ -108,31 +112,7 @@ edition = "2024"
 
 [dependencies]
 horizon-client = {{ git = "https://github.com/horizon-rust/horizon", rev = "{horizon_rev}" }}
-yefira-rs = {{ path = "../core" }}
-"""
-    with open(api_dir / "Cargo.toml", "w", encoding="utf-8") as f:
-        f.write(api_cargo_toml)
-
-    bundle_api_src = yefira_root / "bundle" / "api" / "src" / "lib.rs"
-    if bundle_api_src.exists():
-        shutil.copy2(bundle_api_src, api_dir / "src" / "lib.rs")
-    else:
-        raise FileNotFoundError(f"Missing bundle source: {bundle_api_src}")
-
-    # 2.3 core/ package (Standalone Yefira Live Sync Engine)
-    core_dir = mixins_dir / "core"
-    core_dir.mkdir(parents=True, exist_ok=True)
-
-    core_cargo_toml = f"""[package]
-name = "yefira-rs"
-version = "{version}"
-edition = "2021"
-authors = ["Mozi <mozi1924@arasaka.ltd>"]
-license = "GPL-3.0-or-later"
-description = "High-performance Rust-native Minecraft live synchronization server for Horizon and libmozitoolkit"
-
-[dependencies]
-glam = {{ version = "0.34", features = ["serde"] }}
+glam = {{ version = "0.30", features = ["serde"] }}
 xxhash-rust = {{ version = "0.8", features = ["xxh64"] }}
 tungstenite = {{ version = "0.30", features = ["handshake"] }}
 serde = {{ version = "1.0", features = ["derive"] }}
@@ -141,11 +121,46 @@ parking_lot = "0.12"
 thiserror = "2.0"
 log = "0.4"
 """
-    with open(core_dir / "Cargo.toml", "w", encoding="utf-8") as f:
-        f.write(core_cargo_toml)
+    with open(api_dir / "Cargo.toml", "w", encoding="utf-8") as f:
+        f.write(api_cargo_toml)
 
-    # Copy core src/ tree
-    shutil.copytree(yefira_root / "src", core_dir / "src")
+    # Copy Trait mod lib.rs
+    bundle_api_src = yefira_root / "bundle" / "api" / "src" / "lib.rs"
+    if bundle_api_src.exists():
+        shutil.copy2(bundle_api_src, api_src_dir / "lib.rs")
+    else:
+        raise FileNotFoundError(f"Missing bundle source: {bundle_api_src}")
+
+    # Copy all engine modules into api/src/
+    yefira_src = yefira_root / "src"
+    for item in os.listdir(yefira_src):
+        if item == "lib.rs":
+            continue
+        src_item = yefira_src / item
+        dst_item = api_src_dir / item
+        if src_item.is_dir():
+            shutil.copytree(src_item, dst_item)
+        else:
+            shutil.copy2(src_item, dst_item)
+
+    # Also keep bundle/ up to date in repository for CLI native-build
+    bundle_api_dir = yefira_root / "bundle" / "api"
+    with open(bundle_api_dir / "Cargo.toml", "w", encoding="utf-8") as f:
+        f.write(api_cargo_toml)
+    for item in os.listdir(yefira_src):
+        if item == "lib.rs":
+            continue
+        src_item = yefira_src / item
+        dst_item = bundle_api_dir / "src" / item
+        if dst_item.exists():
+            if dst_item.is_dir():
+                shutil.rmtree(dst_item)
+            else:
+                dst_item.unlink()
+        if src_item.is_dir():
+            shutil.copytree(src_item, dst_item)
+        else:
+            shutil.copy2(src_item, dst_item)
 
     # 3. Zip into .hnmod with deterministic Unix permissions (0o644)
     if hnmod_file.exists():

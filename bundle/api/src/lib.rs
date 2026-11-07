@@ -1,5 +1,20 @@
 //! Horizon Trait Mod implementation for Yefira Live Sync.
 
+pub mod command;
+pub mod config;
+pub mod horizon;
+pub mod protocol;
+pub mod scanner;
+pub mod selection;
+pub mod server;
+
+pub use config::YefiraConfig;
+pub use horizon::YefiraMod;
+pub use protocol::*;
+pub use scanner::{CanonicalVoxelScanner, WorldBlockProvider};
+pub use selection::{Direction, SelectionBox, SelectionManager};
+pub use server::{DeltaQueue, WebSocketServerManager};
+
 use std::sync::OnceLock;
 
 use horizon_client::mod_api::{
@@ -7,7 +22,6 @@ use horizon_client::mod_api::{
     LevelDimension, LevelHost, ServerAboutToStartEvent, ServerStoppingEvent,
     ServerTickEvent, ServerTickPhase, Text,
 };
-use yefira_rs::horizon::YefiraMod;
 
 static YEFIRA: OnceLock<YefiraMod> = OnceLock::new();
 
@@ -37,7 +51,7 @@ impl Hooks for YefiraModBridge {
 
     /// Server tick: flush pending voxel deltas to connected DCC clients (Blender / MoziToolKit).
     fn server_tick(&self, _host: &mut dyn Host, event: &mut ServerTickEvent<'_>) {
-        if event.phase == ServerTickPhase::Post {
+        if matches!(event.phase, ServerTickPhase::ServerTickEnd { .. }) {
             yefira().on_server_tick();
         }
     }
@@ -50,16 +64,8 @@ impl Hooks for YefiraModBridge {
             LevelDimension::End => "minecraft:the_end",
         };
 
-        // Obtain block state name through level helper
-        let new_state_id = event.new;
         let pos = [event.pos.x, event.pos.y, event.pos.z];
-        
-        // Query the state representation
-        let new_state_name = level.block_state(pos);
-        let _ = new_state_id;
-        let _ = new_state_name;
-
-        // Queue change
+        let _ = level.block_state(pos);
         yefira().on_block_changed(dim_str, pos, "", "minecraft:stone");
     }
 
