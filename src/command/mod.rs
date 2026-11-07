@@ -2,4 +2,4 @@
 
 mod handler;
 
-pub use handler::{execute_command, CommandOutput};
+pub use handler::{CommandOutput, execute_command};

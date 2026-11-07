@@ -19,14 +19,14 @@ pub mod selection;
 pub mod server;
 pub mod visual;
 
-pub use command::{execute_command, CommandOutput};
+pub use command::{CommandOutput, execute_command};
 pub use config::YefiraConfig;
 pub use horizon::YefiraMod;
 pub use protocol::{
+    BaselineAckResult, CancelReason, DeltaChangeEntry, ErrorCode, Opcode, PROTOCOL_MAGIC,
+    PROTOCOL_VERSION, Packet, ProtocolError, ResyncReason, SparseBlockEntry, SyncDecision,
     compute_canonical_state_hash, compute_delta_batch_hash, decode_packet, encode_packet,
-    normalize_canonical_blockstate, BaselineAckResult, CancelReason, DeltaChangeEntry, ErrorCode,
-    Opcode, Packet, ProtocolError, ResyncReason, SparseBlockEntry, SyncDecision, PROTOCOL_MAGIC,
-    PROTOCOL_VERSION,
+    normalize_canonical_blockstate,
 };
 pub use scanner::{
     BaselineScanResult, CanonicalVoxelScanner, InMemoryWorld, ScanError, TrackingWorldProvider,

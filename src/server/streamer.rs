@@ -2,7 +2,7 @@
 
 use xxhash_rust::xxh64::Xxh64;
 
-use crate::protocol::{Packet, DEFAULT_CHUNK_SIZE};
+use crate::protocol::{DEFAULT_CHUNK_SIZE, Packet};
 use crate::scanner::BaselineScanResult;
 
 /// Generates the sequence of RFC v3.1 packets for transmitting an authoritative baseline.

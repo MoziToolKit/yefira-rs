@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 
 use crate::protocol::{
-    compute_delta_batch_hash, DeltaChangeEntry, Packet, MAX_DELTA_BATCH_CHANGES,
+    DeltaChangeEntry, MAX_DELTA_BATCH_CHANGES, Packet, compute_delta_batch_hash,
 };
 use crate::selection::SelectionBox;
 

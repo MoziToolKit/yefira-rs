@@ -3,20 +3,20 @@
 
 /// Selection box (Committed)
 pub const COLOR_NORMAL_STROKE: u32 = 0xE600FFFF; // Cyan outline (alpha ~0.90)
-pub const COLOR_NORMAL_FILL: u32 = 0x3300FFFF;   // Subtle cyan fill (alpha ~0.20)
+pub const COLOR_NORMAL_FILL: u32 = 0x3300FFFF; // Subtle cyan fill (alpha ~0.20)
 pub const WIDTH_NORMAL_STROKE: f32 = 2.0;
 
 pub const COLOR_OVERSIZED_STROKE: u32 = 0xF0FF2222; // Alert red outline
-pub const COLOR_OVERSIZED_FILL: u32 = 0x40FF2222;   // Subtle red fill
+pub const COLOR_OVERSIZED_FILL: u32 = 0x40FF2222; // Subtle red fill
 pub const WIDTH_OVERSIZED_STROKE: f32 = 2.5;
 
 /// Drag preview box (Active dragging in Ghost Mode)
 pub const COLOR_PREVIEW_NORMAL_STROKE: u32 = 0xE600FF00; // Lime green outline
-pub const COLOR_PREVIEW_NORMAL_FILL: u32 = 0x4000FF00;   // Translucent green fill
+pub const COLOR_PREVIEW_NORMAL_FILL: u32 = 0x4000FF00; // Translucent green fill
 pub const WIDTH_PREVIEW_STROKE: f32 = 2.5;
 
 pub const COLOR_PREVIEW_OVERSIZED_STROKE: u32 = 0xF0FF3300; // Red-orange outline
-pub const COLOR_PREVIEW_OVERSIZED_FILL: u32 = 0x4DFF3300;   // Red-orange fill
+pub const COLOR_PREVIEW_OVERSIZED_FILL: u32 = 0x4DFF3300; // Red-orange fill
 
 /// Free cursor hover block outline
 pub const COLOR_HOVER_BLOCK_STROKE: u32 = 0xFF00FFEE;

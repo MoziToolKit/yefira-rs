@@ -37,24 +37,36 @@ fn test_scanner_state_hash_parity_with_libmozitoolkit() {
 
     // Verify block palette: Air is index 0
     assert_eq!(scan_result.block_palette[0], "minecraft:air");
-    assert!(scan_result
-        .block_palette
-        .contains(&"minecraft:bedrock".to_string()));
-    assert!(scan_result
-        .block_palette
-        .contains(&"minecraft:stone".to_string()));
-    assert!(scan_result
-        .block_palette
-        .contains(&"minecraft:dirt".to_string()));
-    assert!(scan_result
-        .block_palette
-        .contains(&"minecraft:oak_planks".to_string()));
-    assert!(scan_result
-        .block_palette
-        .contains(&"minecraft:glass".to_string()));
-    assert!(scan_result
-        .block_palette
-        .contains(&"minecraft:torch".to_string()));
+    assert!(
+        scan_result
+            .block_palette
+            .contains(&"minecraft:bedrock".to_string())
+    );
+    assert!(
+        scan_result
+            .block_palette
+            .contains(&"minecraft:stone".to_string())
+    );
+    assert!(
+        scan_result
+            .block_palette
+            .contains(&"minecraft:dirt".to_string())
+    );
+    assert!(
+        scan_result
+            .block_palette
+            .contains(&"minecraft:oak_planks".to_string())
+    );
+    assert!(
+        scan_result
+            .block_palette
+            .contains(&"minecraft:glass".to_string())
+    );
+    assert!(
+        scan_result
+            .block_palette
+            .contains(&"minecraft:torch".to_string())
+    );
 
     // 2. Compute authoritative hash using libmozitoolkit's compute_sparse_state_hash
     // We collect the exact non-air entries in (Y, Z, X) order

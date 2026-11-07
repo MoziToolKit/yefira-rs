@@ -271,7 +271,8 @@ pub fn execute_command(
             CommandOutput::Success(format!(
                 "=== Yefira Live Sync Status ===\nServer: {} (ws://{}:{})\nClients Connected: {}\nSelection ({}): {}",
                 if is_running { "RUNNING" } else { "STOPPED" },
-                cfg.host, cfg.port,
+                cfg.host,
+                cfg.port,
                 clients,
                 dimension,
                 sel_str
@@ -352,14 +353,18 @@ pub fn execute_command(
                     } else {
                         ghost.set_active(true);
                     }
-                    CommandOutput::Success("§b[Yefira] Ghost Mode ENABLED. Player pinned at anchor.".into())
+                    CommandOutput::Success(
+                        "§b[Yefira] Ghost Mode ENABLED. Player pinned at anchor.".into(),
+                    )
                 }
                 "off" | "disable" => {
                     ghost.set_active(false);
                     if let Some(anchor) = ghost_anchor {
                         anchor.unpin_player("player");
                     }
-                    CommandOutput::Success("§7[Yefira] Ghost Mode DISABLED. Player restored.".into())
+                    CommandOutput::Success(
+                        "§7[Yefira] Ghost Mode DISABLED. Player restored.".into(),
+                    )
                 }
                 "toggle" => {
                     let active = ghost.toggle();
@@ -383,7 +388,11 @@ pub fn execute_command(
                     let active = ghost.is_active();
                     CommandOutput::Success(format!(
                         "Ghost Mode: {}",
-                        if active { "ENABLED (Camera Free)" } else { "DISABLED" }
+                        if active {
+                            "ENABLED (Camera Free)"
+                        } else {
+                            "DISABLED"
+                        }
                     ))
                 }
                 _ => CommandOutput::Error("Usage: /yefira ghost <on|off|toggle|status>".into()),

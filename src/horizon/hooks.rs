@@ -5,13 +5,12 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use horizon_client::mod_api::{
-    BlockChangedEvent, CameraPoseEvent, CommandEvent, CommandsEvent, Flow, Hooks, Host,
-    HudEvent, KeyEvent, LevelDimension, LevelHost, NativeCommand,
-    PerformCommandEvent, RegisterCommandsEvent, RenderHooks, ScreenClosingEvent,
-    ScreenKeyPressedPreEvent, ScreenMouseButtonPressedPreEvent,
-    ScreenMouseButtonReleasedPreEvent, ScreenMouseDraggedPreEvent, ScreenMouseScrolledPreEvent,
-    ScreenRenderPostEvent, ServerAboutToStartEvent, ServerStoppingEvent, ServerTickEvent,
-    ServerTickPhase, Text,
+    BlockChangedEvent, CameraPoseEvent, CommandEvent, CommandsEvent, Flow, GuiLayerPreEvent, Hooks,
+    Host, HudEvent, KeyEvent, LevelDimension, LevelHost, NativeCommand, PerformCommandEvent,
+    RegisterCommandsEvent, RenderHandEvent, RenderHooks, ScreenClosingEvent,
+    ScreenKeyPressedPreEvent, ScreenMouseButtonPressedPreEvent, ScreenMouseButtonReleasedPreEvent,
+    ScreenMouseDraggedPreEvent, ScreenMouseScrolledPreEvent, ScreenRenderPostEvent,
+    ServerAboutToStartEvent, ServerStoppingEvent, ServerTickEvent, ServerTickPhase, Text,
 };
 
 use crate::ghost::*;
@@ -43,6 +42,12 @@ impl YefiraModBridge {
     }
 }
 
+impl Default for YefiraModBridge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Reads all block states within the active selection box from Horizon's world.
 fn scan_selection_blocks(
     host: &dyn Host,
@@ -50,7 +55,9 @@ fn scan_selection_blocks(
     dim: &str,
 ) -> HashMap<[i32; 3], String> {
     let mut blocks = HashMap::new();
-    let level = host.level(dim).or_else(|| host.level("minecraft:overworld"));
+    let level = host
+        .level(dim)
+        .or_else(|| host.level("minecraft:overworld"));
     let Some(level) = level else {
         return blocks;
     };
@@ -60,10 +67,11 @@ fn scan_selection_blocks(
     for x in min[0]..=max[0] {
         for y in min[1]..=max[1] {
             for z in min[2]..=max[2] {
-                if let Some(state) = host.level_block_state(level, [x, y, z]) {
-                    if !state.ends_with(":air") && !state.contains("air") {
-                        blocks.insert([x, y, z], state);
-                    }
+                if let Some(state) = host.level_block_state(level, [x, y, z])
+                    && !state.ends_with(":air")
+                    && !state.contains("air")
+                {
+                    blocks.insert([x, y, z], state);
                 }
             }
         }
@@ -94,15 +102,20 @@ impl Hooks for YefiraModBridge {
     fn server_tick(&self, host: &mut dyn Host, event: &mut ServerTickEvent<'_>) {
         if matches!(event.phase, ServerTickPhase::ServerTickEnd { .. }) {
             // Check if world rescan was requested (e.g. after selection was set or on refresh)
-            if yefira().needs_world_rescan.swap(false, std::sync::atomic::Ordering::AcqRel) {
-                if let Some(sel) = yefira().selection_manager.current_selection() {
-                    let dim = yefira().selection_manager.dimension();
-                    let blocks = scan_selection_blocks(host, &sel, &dim);
-                    yefira().world_provider.clear_blocks();
-                    yefira().world_provider.bulk_set_blocks(blocks);
-                    log::info!("Yefira: Scanned {} world blocks into live sync provider", yefira().world_provider.blocks.read().len());
-                    yefira().server_manager.refresh_all_clients();
-                }
+            if yefira()
+                .needs_world_rescan
+                .swap(false, std::sync::atomic::Ordering::AcqRel)
+                && let Some(sel) = yefira().selection_manager.current_selection()
+            {
+                let dim = yefira().selection_manager.dimension();
+                let blocks = scan_selection_blocks(host, &sel, &dim);
+                yefira().world_provider.clear_blocks();
+                yefira().world_provider.bulk_set_blocks(blocks);
+                log::info!(
+                    "Yefira: Scanned {} world blocks into live sync provider",
+                    yefira().world_provider.blocks.read().len()
+                );
+                yefira().server_manager.refresh_all_clients();
             }
             yefira().on_server_tick();
         }
@@ -130,7 +143,9 @@ impl Hooks for YefiraModBridge {
                 event.player.position[1].floor() as i32,
                 event.player.position[2].floor() as i32,
             ];
-            if let Some(output) = yefira().handle_chat_command(trimmed, Some(player_pos), &event.player.dimension) {
+            if let Some(output) =
+                yefira().handle_chat_command(trimmed, Some(player_pos), &event.player.dimension)
+            {
                 let msg = output.message();
                 // Send feedback through command capture and direct tell packet
                 host.feedback(Text::literal(msg.to_string()));
@@ -179,7 +194,9 @@ impl Hooks for YefiraModBridge {
                     ];
                     let hit = host.raycast(128.0);
                     let pivot = hit.map(|h| [h.x, h.y, h.z]);
-                    yefira().ghost_mode.init_from_camera(eye_pos, cam.yaw, cam.pitch, pivot);
+                    yefira()
+                        .ghost_mode
+                        .init_from_camera(eye_pos, cam.yaw, cam.pitch, pivot);
                 } else {
                     yefira().ghost_mode.set_active(true);
                 }
@@ -260,13 +277,14 @@ impl Hooks for YefiraModBridge {
                     ];
                     let hit = host.raycast(128.0);
                     let pivot = hit.map(|h| [h.x, h.y, h.z]);
-                    yefira().ghost_mode.init_from_camera(eye_pos, cam.yaw, cam.pitch, pivot);
+                    yefira()
+                        .ghost_mode
+                        .init_from_camera(eye_pos, cam.yaw, cam.pitch, pivot);
                 } else {
                     yefira().ghost_mode.set_active(true);
                 }
                 host.mod_screen_open("yefira_ghost");
             }
-            return;
         }
 
         if k == "o" || k == "key.keyboard.o" {
@@ -275,7 +293,6 @@ impl Hooks for YefiraModBridge {
             } else if host.mod_screen().is_none() {
                 host.mod_screen_open("yefira_gui");
             }
-            return;
         }
     }
 
@@ -283,7 +300,10 @@ impl Hooks for YefiraModBridge {
     fn camera_pose(&self, _host: &dyn Host, event: &mut CameraPoseEvent<'_>) {
         if yefira().ghost_mode.is_active() {
             let state = yefira().ghost_mode.state();
-            if state.camera_pos[0].is_finite() && state.camera_pos[1].is_finite() && state.camera_pos[2].is_finite() {
+            if state.camera_pos[0].is_finite()
+                && state.camera_pos[1].is_finite()
+                && state.camera_pos[2].is_finite()
+            {
                 *event.position = state.camera_pos;
             }
             if state.yaw.is_finite() {
@@ -293,6 +313,30 @@ impl Hooks for YefiraModBridge {
                 event.pitch = state.pitch;
             }
         }
+    }
+
+    /// Cancels first-person hand and held item rendering when Ghost Mode is active.
+    fn render_hand(&self, _host: &dyn Host, _event: &mut RenderHandEvent<'_>) -> Flow {
+        if yefira().ghost_mode.is_active() {
+            return Flow::Cancel;
+        }
+        Flow::Continue
+    }
+
+    /// Hides center crosshair, hotbar, health, and status HUD layers when Ghost Mode is active.
+    fn gui_layer_pre(&self, _host: &mut dyn Host, event: &mut GuiLayerPreEvent<'_>) -> Flow {
+        if yefira().ghost_mode.is_active() {
+            match event.layer {
+                "minecraft:crosshair"
+                | "minecraft:hotbar"
+                | "minecraft:player_health"
+                | "minecraft:contextual_info_bar"
+                | "minecraft:selected_item_name"
+                | "minecraft:vehicle_health" => return Flow::Cancel,
+                _ => {}
+            }
+        }
+        Flow::Continue
     }
 
     /// Screen closing event: clean up active Ghost Mode or GUI state.
@@ -316,7 +360,13 @@ impl Hooks for YefiraModBridge {
             host.fill(event.batch, [0.0, 0.0, width, 24.0], 0xD0181825);
             host.fill(event.batch, [0.0, 23.0, width, 1.5], 0xFF00E5FF);
 
-            host.text(event.batch, "👻 [Yefira 3D Viewport Mode]", [10.0, 7.0], 0x00FFFF, true);
+            host.text(
+                event.batch,
+                "👻 [Yefira 3D Viewport Mode]",
+                [10.0, 7.0],
+                0x00FFFF,
+                true,
+            );
 
             let hints = "MMB: Orbit | Shift+MMB: Pan | Scroll: Zoom | LMB Drag: Box / Gizmo | V: Focus | X: Clear | Esc/G: Exit";
             let hw = host.text_width(hints);
@@ -331,7 +381,11 @@ impl Hooks for YefiraModBridge {
             let ws_running = yefira().server_manager.is_running();
             let ws_clients = yefira().server_manager.client_count();
             let status_text = if ws_running {
-                format!("Live Sync: 8765 ({} client{})", ws_clients, if ws_clients == 1 { "" } else { "s" })
+                format!(
+                    "Live Sync: 8765 ({} client{})",
+                    ws_clients,
+                    if ws_clients == 1 { "" } else { "s" }
+                )
             } else {
                 "Live Sync: Stopped".to_string()
             };
@@ -360,80 +414,19 @@ impl Hooks for YefiraModBridge {
                 host.text(event.batch, &info, [8.0, bottom_y], 0x55FFFF, true);
             }
 
-            // 3. Hover Hit-Test for Gizmos and Floor/Blocks
+            // 3. Hover Hit-Test for Gizmos and World Blocks (aligned 1:1 with Java)
+            let fov = host.camera().map(|c| c.fov_degrees).unwrap_or(70.0);
             let mut ghost_guard = yefira().ghost_mode.write_state();
             let state = &mut *ghost_guard;
 
-            let cam_pos = state.camera_pos;
-            let yaw = state.yaw;
-            let pitch = state.pitch;
-            let screen_size = [width, height];
-
-            let mut best_corner = CORNER_NONE;
-            let mut best_axis = AXIS_NONE;
-            let mut closest_dist = 24.0_f32;
-
-            // Check Pos1 handle
-            if let Some(pos1) = yefira().selection_manager.pos1() {
-                let origin = [pos1[0] as f64 + 0.5, pos1[1] as f64 + 0.5, pos1[2] as f64 + 0.5];
-                if let Some(screen_origin) = project_to_screen(origin, cam_pos, yaw, pitch, screen_size) {
-                    let d = ((mouse[0] - screen_origin[0]).powi(2) + (mouse[1] - screen_origin[1]).powi(2)).sqrt();
-                    if d < 18.0 && d < closest_dist {
-                        closest_dist = d;
-                        best_corner = CORNER_POS1;
-                        best_axis = AXIS_CENTER;
-                    }
-                }
-            }
-
-            // Check Pos2 handle
-            if let Some(pos2) = yefira().selection_manager.pos2() {
-                let origin = [pos2[0] as f64 + 0.5, pos2[1] as f64 + 0.5, pos2[2] as f64 + 0.5];
-                if let Some(screen_origin) = project_to_screen(origin, cam_pos, yaw, pitch, screen_size) {
-                    let d = ((mouse[0] - screen_origin[0]).powi(2) + (mouse[1] - screen_origin[1]).powi(2)).sqrt();
-                    if d < 18.0 && d < closest_dist {
-                        closest_dist = d;
-                        best_corner = CORNER_POS2;
-                        best_axis = AXIS_CENTER;
-                    }
-                }
-            }
-
-            // Check Center handle
-            if let Some(sel) = yefira().selection_manager.current_selection() {
-                let c = sel.center();
-                let center = [c[0], c[1], c[2]];
-                if let Some(screen_center) = project_to_screen(center, cam_pos, yaw, pitch, screen_size) {
-                    let d = ((mouse[0] - screen_center[0]).powi(2) + (mouse[1] - screen_center[1]).powi(2)).sqrt();
-                    if d < 22.0 && d < closest_dist {
-                        best_corner = CORNER_CENTER;
-                        best_axis = AXIS_CENTER;
-                    }
-                }
-            }
-
-            state.hovered_corner = best_corner;
-            state.hovered_axis = best_axis;
-
-            // If no gizmo hovered and no selection exists, compute hovered floor block for drag-to-select
-            if best_corner == CORNER_NONE && yefira().selection_manager.current_selection().is_none() {
-                let (ray_origin, ray_dir) = screen_mouse_ray(mouse, screen_size, cam_pos, yaw, pitch);
-                let floor_y = state.pivot_pos[1].floor();
-                if ray_dir[1].abs() > 1e-4 {
-                    let t = (floor_y - ray_origin[1]) / ray_dir[1];
-                    if t > 0.0 && t < 256.0 {
-                        let hx = (ray_origin[0] + ray_dir[0] * t).floor() as i32;
-                        let hz = (ray_origin[2] + ray_dir[2] * t).floor() as i32;
-                        state.hovered_block = Some([hx, floor_y as i32, hz]);
-                    } else {
-                        state.hovered_block = None;
-                    }
-                } else {
-                    state.hovered_block = None;
-                }
-            } else {
-                state.hovered_block = None;
-            }
+            update_gizmo_hover(
+                state,
+                &yefira().selection_manager,
+                mouse,
+                [width, height],
+                fov,
+                |pos| host.block(pos),
+            );
         } else if mod_screen == Some("yefira_gui") {
             // Render Yefira Settings & Control Panel GUI dialog
             let width = event.screen.rect[2].max(320.0);
@@ -449,71 +442,145 @@ impl Hooks for YefiraModBridge {
             // Card backdrop
             host.fill(event.batch, [px, py, panel_w, panel_h], 0xFA1E1E2E);
             host.fill(event.batch, [px, py, panel_w, 2.0], 0xFF00E5FF);
-            host.fill(event.batch, [px, py + panel_h - 2.0, panel_w, 2.0], 0xFF00E5FF);
+            host.fill(
+                event.batch,
+                [px, py + panel_h - 2.0, panel_w, 2.0],
+                0xFF00E5FF,
+            );
             host.fill(event.batch, [px, py, 2.0, panel_h], 0xFF00E5FF);
-            host.fill(event.batch, [px + panel_w - 2.0, py, 2.0, panel_h], 0xFF00E5FF);
+            host.fill(
+                event.batch,
+                [px + panel_w - 2.0, py, 2.0, panel_h],
+                0xFF00E5FF,
+            );
 
             // Title
             let title = "⚡ Yefira Live Sync Settings";
             let tw = host.text_width(title);
-            host.text(event.batch, title, [cx - tw * 0.5, py + 12.0], 0x00FFFF, true);
+            host.text(
+                event.batch,
+                title,
+                [cx - tw * 0.5, py + 12.0],
+                0x00FFFF,
+                true,
+            );
 
             // Status
             let is_running = yefira().server_manager.is_running();
             let clients = yefira().server_manager.client_count();
             let status_str = if is_running {
-                format!("● Server: Running (Port 8765, {} client{})", clients, if clients == 1 { "" } else { "s" })
+                format!(
+                    "● Server: Running (Port 8765, {} client{})",
+                    clients,
+                    if clients == 1 { "" } else { "s" }
+                )
             } else {
                 "○ Server: Stopped (Port 8765)".to_string()
             };
             let status_color = if is_running { 0x55FF55 } else { 0xFF6666 };
-            host.text(event.batch, &status_str, [px + 16.0, py + 38.0], status_color, true);
+            host.text(
+                event.batch,
+                &status_str,
+                [px + 16.0, py + 38.0],
+                status_color,
+                true,
+            );
 
             // Button 1: Start / Stop Server
             let b1_rect = [px + 16.0, py + 58.0, 118.0, 24.0];
             let b1_bg = if is_running { 0xFFBA3F3F } else { 0xFF2E8B57 };
             host.fill(event.batch, b1_rect, b1_bg);
-            let b1_txt = if is_running { "Stop Server" } else { "Start Server" };
+            let b1_txt = if is_running {
+                "Stop Server"
+            } else {
+                "Start Server"
+            };
             let b1_w = host.text_width(b1_txt);
-            host.text(event.batch, b1_txt, [b1_rect[0] + (b1_rect[2] - b1_w) * 0.5, py + 65.0], 0xFFFFFF, true);
+            host.text(
+                event.batch,
+                b1_txt,
+                [b1_rect[0] + (b1_rect[2] - b1_w) * 0.5, py + 65.0],
+                0xFFFFFF,
+                true,
+            );
 
             // Button 2: Restart Server
             let b2_rect = [px + 144.0, py + 58.0, 120.0, 24.0];
             host.fill(event.batch, b2_rect, 0xFF45475A);
             let b2_txt = "Restart Server";
             let b2_w = host.text_width(b2_txt);
-            host.text(event.batch, b2_txt, [b2_rect[0] + (b2_rect[2] - b2_w) * 0.5, py + 65.0], 0xFFFFFF, true);
+            host.text(
+                event.batch,
+                b2_txt,
+                [b2_rect[0] + (b2_rect[2] - b2_w) * 0.5, py + 65.0],
+                0xFFFFFF,
+                true,
+            );
 
             // Button 3: Toggle Ghost Mode
             let b3_rect = [px + 16.0, py + 88.0, 248.0, 24.0];
             let ghost_active = yefira().ghost_mode.is_active();
             let b3_bg = if ghost_active { 0xFF007A99 } else { 0xFF313244 };
             host.fill(event.batch, b3_rect, b3_bg);
-            let b3_txt = if ghost_active { "Ghost Mode: Active (Click to Exit)" } else { "Enter 3D Ghost Mode (Hotkey: G)" };
+            let b3_txt = if ghost_active {
+                "Ghost Mode: Active (Click to Exit)"
+            } else {
+                "Enter 3D Ghost Mode (Hotkey: G)"
+            };
             let b3_w = host.text_width(b3_txt);
-            host.text(event.batch, b3_txt, [b3_rect[0] + (b3_rect[2] - b3_w) * 0.5, py + 95.0], 0xFFFFFF, true);
+            host.text(
+                event.batch,
+                b3_txt,
+                [b3_rect[0] + (b3_rect[2] - b3_w) * 0.5, py + 95.0],
+                0xFFFFFF,
+                true,
+            );
 
             // Button 4: Clear Selection
             let b4_rect = [px + 16.0, py + 118.0, 248.0, 24.0];
             host.fill(event.batch, b4_rect, 0xFF313244);
             let b4_txt = "Clear Selection";
             let b4_w = host.text_width(b4_txt);
-            host.text(event.batch, b4_txt, [b4_rect[0] + (b4_rect[2] - b4_w) * 0.5, py + 125.0], 0xFFDDAA, true);
+            host.text(
+                event.batch,
+                b4_txt,
+                [b4_rect[0] + (b4_rect[2] - b4_w) * 0.5, py + 125.0],
+                0xFFDDAA,
+                true,
+            );
 
             // Selection Stats
             let sel_opt = yefira().selection_manager.current_selection();
             let sel_str = match sel_opt {
-                Some(s) => format!("Active Selection: {}x{}x{} ({} voxels)", s.size_x(), s.size_y(), s.size_z(), s.volume()),
+                Some(s) => format!(
+                    "Active Selection: {}x{}x{} ({} voxels)",
+                    s.size_x(),
+                    s.size_y(),
+                    s.size_z(),
+                    s.volume()
+                ),
                 None => "Active Selection: None".to_string(),
             };
-            host.text(event.batch, &sel_str, [px + 16.0, py + 154.0], 0x55FFFF, false);
+            host.text(
+                event.batch,
+                &sel_str,
+                [px + 16.0, py + 154.0],
+                0x55FFFF,
+                false,
+            );
 
             // Button 5: Close / Done
             let b5_rect = [px + 16.0, py + 185.0, 248.0, 24.0];
             host.fill(event.batch, b5_rect, 0xFF585B70);
             let b5_txt = "Done / Close";
             let b5_w = host.text_width(b5_txt);
-            host.text(event.batch, b5_txt, [b5_rect[0] + (b5_rect[2] - b5_w) * 0.5, py + 192.0], 0xFFFFFF, true);
+            host.text(
+                event.batch,
+                b5_txt,
+                [b5_rect[0] + (b5_rect[2] - b5_w) * 0.5, py + 192.0],
+                0xFFFFFF,
+                true,
+            );
         }
     }
 
@@ -544,19 +611,49 @@ impl Hooks for YefiraModBridge {
 
             // Left Click: Gizmo Dragging or 3D Box Drag Creation
             if button == 0 {
+                let width = event.screen.rect[2].max(320.0);
+                let height = event.screen.rect[3].max(240.0);
+                let mouse = event.screen.mouse;
+                let fov = host.camera().map(|c| c.fov_degrees).unwrap_or(70.0);
+
                 let mut state = yefira().ghost_mode.write_state();
-                if state.hovered_corner != CORNER_NONE && state.hovered_axis != AXIS_NONE {
-                    state.dragging_corner = state.hovered_corner;
-                    state.dragging_axis = state.hovered_axis;
-                    state.initial_pos1 = yefira().selection_manager.pos1();
-                    state.initial_pos2 = yefira().selection_manager.pos2();
-                    state.drag_preview_pos1 = state.initial_pos1;
-                    state.drag_preview_pos2 = state.initial_pos2;
+
+                // Fresh hover hit test on press
+                update_gizmo_hover(
+                    &mut state,
+                    &yefira().selection_manager,
+                    mouse,
+                    [width, height],
+                    fov,
+                    |pos| host.block(pos),
+                );
+
+                let corner = state.hovered_corner;
+                let axis = state.hovered_axis;
+                if corner != CORNER_NONE && axis != AXIS_NONE {
+                    let (ray_origin, ray_dir) = screen_mouse_ray(
+                        mouse,
+                        [width, height],
+                        state.camera_pos,
+                        state.yaw,
+                        state.pitch,
+                        fov,
+                    );
+                    let cam_look = glam::DVec3::from(forward_vector(state.yaw, state.pitch));
+                    state.start_gizmo_drag(
+                        corner,
+                        axis,
+                        yefira().selection_manager.pos1(),
+                        yefira().selection_manager.pos2(),
+                        glam::DVec3::from(ray_origin),
+                        glam::DVec3::from(ray_dir),
+                        cam_look,
+                    );
                     return Flow::Cancel;
-                } else if !yefira().selection_manager.has_selection() && state.hovered_block.is_some() {
-                    state.is_box_creating = true;
-                    state.box_create_start = state.hovered_block;
-                    state.box_create_current = state.hovered_block;
+                } else if !yefira().selection_manager.has_selection()
+                    && let Some(hb) = state.hovered_block
+                {
+                    state.start_box_create(hb);
                     return Flow::Cancel;
                 }
                 return Flow::Cancel;
@@ -566,14 +663,10 @@ impl Hooks for YefiraModBridge {
             if button == 1 {
                 let mut state = yefira().ghost_mode.write_state();
                 if state.is_box_creating {
-                    state.is_box_creating = false;
-                    state.box_create_start = None;
-                    state.box_create_current = None;
+                    state.cancel_box_create();
                 }
                 if state.dragging_corner != CORNER_NONE {
-                    state.dragging_corner = CORNER_NONE;
-                    state.dragging_axis = AXIS_NONE;
-                    state.drag_preview_selection = None;
+                    state.cancel_gizmo_drag();
                 }
                 return Flow::Cancel;
             }
@@ -595,7 +688,10 @@ impl Hooks for YefiraModBridge {
             let mouse = event.screen.mouse;
 
             let in_rect = |r: [f32; 4]| -> bool {
-                mouse[0] >= r[0] && mouse[0] <= r[0] + r[2] && mouse[1] >= r[1] && mouse[1] <= r[1] + r[3]
+                mouse[0] >= r[0]
+                    && mouse[0] <= r[0] + r[2]
+                    && mouse[1] >= r[1]
+                    && mouse[1] <= r[1] + r[3]
             };
 
             // Button 1: Start / Stop Server
@@ -724,51 +820,43 @@ impl Hooks for YefiraModBridge {
                 let width = event.screen.rect[2].max(320.0);
                 let height = event.screen.rect[3].max(240.0);
                 let mouse = event.screen.mouse;
-                let (ray_origin, ray_dir) = screen_mouse_ray(mouse, [width, height], state.camera_pos, state.yaw, state.pitch);
-                let floor_y = state.pivot_pos[1].floor();
-                if ray_dir[1].abs() > 1e-4 {
-                    let t = (floor_y - ray_origin[1]) / ray_dir[1];
-                    if t > 0.0 && t < 256.0 {
-                        let hx = (ray_origin[0] + ray_dir[0] * t).floor() as i32;
-                        let hz = (ray_origin[2] + ray_dir[2] * t).floor() as i32;
-                        state.box_create_current = Some([hx, floor_y as i32, hz]);
-                    }
+                let fov = host.camera().map(|c| c.fov_degrees).unwrap_or(70.0);
+                let (ray_origin, ray_dir) = screen_mouse_ray(
+                    mouse,
+                    [width, height],
+                    state.camera_pos,
+                    state.yaw,
+                    state.pitch,
+                    fov,
+                );
+                if let Some(hit) =
+                    raycast_block_from_mouse(ray_origin, ray_dir, 256.0, |pos| host.block(pos))
+                {
+                    state.update_box_create(hit);
                 }
                 return Flow::Cancel;
             }
 
             // Gizmo drag
             if state.dragging_corner != CORNER_NONE && state.dragging_axis != AXIS_NONE {
-                let drag_delta = (delta[0] * 0.1).round() as i32;
-                let dx = if state.dragging_axis == AXIS_X || state.dragging_axis == AXIS_CENTER { drag_delta } else { 0 };
-                let dy = if state.dragging_axis == AXIS_Y { -drag_delta } else { 0 };
-                let dz = if state.dragging_axis == AXIS_Z { drag_delta } else { 0 };
-
-                if state.dragging_corner == CORNER_POS1 {
-                    if let Some(p1) = state.initial_pos1 {
-                        let new_p1 = [p1[0] + dx, p1[1] + dy, p1[2] + dz];
-                        state.drag_preview_pos1 = Some(new_p1);
-                        if let Some(p2) = state.initial_pos2 {
-                            state.drag_preview_selection = Some(SelectionBox::new(new_p1, p2));
-                        }
-                    }
-                } else if state.dragging_corner == CORNER_POS2 {
-                    if let Some(p2) = state.initial_pos2 {
-                        let new_p2 = [p2[0] + dx, p2[1] + dy, p2[2] + dz];
-                        state.drag_preview_pos2 = Some(new_p2);
-                        if let Some(p1) = state.initial_pos1 {
-                            state.drag_preview_selection = Some(SelectionBox::new(p1, new_p2));
-                        }
-                    }
-                } else if state.dragging_corner == CORNER_CENTER {
-                    if let (Some(p1), Some(p2)) = (state.initial_pos1, state.initial_pos2) {
-                        let new_p1 = [p1[0] + dx, p1[1] + dy, p1[2] + dz];
-                        let new_p2 = [p2[0] + dx, p2[1] + dy, p2[2] + dz];
-                        state.drag_preview_pos1 = Some(new_p1);
-                        state.drag_preview_pos2 = Some(new_p2);
-                        state.drag_preview_selection = Some(SelectionBox::new(new_p1, new_p2));
-                    }
-                }
+                let width = event.screen.rect[2].max(320.0);
+                let height = event.screen.rect[3].max(240.0);
+                let mouse = event.screen.mouse;
+                let fov = host.camera().map(|c| c.fov_degrees).unwrap_or(70.0);
+                let (ray_origin, ray_dir) = screen_mouse_ray(
+                    mouse,
+                    [width, height],
+                    state.camera_pos,
+                    state.yaw,
+                    state.pitch,
+                    fov,
+                );
+                let cam_look = glam::DVec3::from(forward_vector(state.yaw, state.pitch));
+                state.handle_gizmo_drag(
+                    glam::DVec3::from(ray_origin),
+                    glam::DVec3::from(ray_dir),
+                    cam_look,
+                );
                 return Flow::Cancel;
             }
 
@@ -799,30 +887,26 @@ impl Hooks for YefiraModBridge {
 
             if button == 0 {
                 let mut state = yefira().ghost_mode.write_state();
+                let dim = host
+                    .camera()
+                    .map(|c| c.dimension)
+                    .unwrap_or_else(|| "minecraft:overworld".to_string());
 
                 // Finish box creation
                 if state.is_box_creating {
-                    if let (Some(s), Some(c)) = (state.box_create_start, state.box_create_current) {
-                        yefira().selection_manager.set_selection(s, c, "minecraft:overworld");
+                    if let Some((s, c)) = state.finish_box_create() {
+                        yefira().selection_manager.set_selection(s, c, &dim);
                         yefira().request_world_rescan();
                     }
-                    state.is_box_creating = false;
-                    state.box_create_start = None;
-                    state.box_create_current = None;
                     return Flow::Cancel;
                 }
 
                 // Finish gizmo drag
                 if state.dragging_corner != CORNER_NONE {
-                    if let (Some(p1), Some(p2)) = (state.drag_preview_pos1, state.drag_preview_pos2) {
-                        yefira().selection_manager.set_selection(p1, p2, "minecraft:overworld");
+                    if let Some((p1, p2)) = state.finish_gizmo_drag() {
+                        yefira().selection_manager.set_selection(p1, p2, &dim);
                         yefira().request_world_rescan();
                     }
-                    state.dragging_corner = CORNER_NONE;
-                    state.dragging_axis = AXIS_NONE;
-                    state.drag_preview_selection = None;
-                    state.initial_pos1 = None;
-                    state.initial_pos2 = None;
                     return Flow::Cancel;
                 }
                 return Flow::Cancel;
@@ -893,7 +977,9 @@ impl Hooks for YefiraModBridge {
                 if let Some(sel) = yefira().selection_manager.current_selection() {
                     let c = sel.center();
                     let max_side = sel.size_x().max(sel.size_y()).max(sel.size_z()) as f64;
-                    yefira().ghost_mode.focus_selection([c[0], c[1], c[2]], max_side);
+                    yefira()
+                        .ghost_mode
+                        .focus_selection([c[0], c[1], c[2]], max_side);
                 }
                 return Flow::Cancel;
             }
@@ -905,9 +991,17 @@ impl Hooks for YefiraModBridge {
 
             if k == "c" || k == "key.keyboard.c" || k == "b" || k == "key.keyboard.b" {
                 let pivot = yefira().ghost_mode.state().pivot_pos;
-                let center = [pivot[0].floor() as i32, pivot[1].floor() as i32, pivot[2].floor() as i32];
+                let center = [
+                    pivot[0].floor() as i32,
+                    pivot[1].floor() as i32,
+                    pivot[2].floor() as i32,
+                ];
                 if let Ok(box_3d) = SelectionBox::preset_above(center, 16) {
-                    yefira().selection_manager.set_selection(box_3d.pos1(), box_3d.pos2(), "minecraft:overworld");
+                    yefira().selection_manager.set_selection(
+                        box_3d.pos1(),
+                        box_3d.pos2(),
+                        "minecraft:overworld",
+                    );
                     yefira().request_world_rescan();
                 }
                 return Flow::Cancel;
@@ -951,7 +1045,9 @@ impl Hooks for YefiraModBridge {
                     ];
                     let hit = host.raycast(128.0);
                     let pivot = hit.map(|h| [h.x, h.y, h.z]);
-                    yefira().ghost_mode.init_from_camera(eye_pos, cam.yaw, cam.pitch, pivot);
+                    yefira()
+                        .ghost_mode
+                        .init_from_camera(eye_pos, cam.yaw, cam.pitch, pivot);
                 } else {
                     yefira().ghost_mode.set_active(true);
                 }

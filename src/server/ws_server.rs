@@ -6,13 +6,13 @@ use sha1::{Digest, Sha1};
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, sync_channel};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use tungstenite::protocol::{Role, WebSocket};
 use tungstenite::Message;
+use tungstenite::protocol::{Role, WebSocket};
 
 use super::delta_queue::DeltaQueue;
 use super::session::ClientSession;
@@ -220,10 +220,10 @@ impl WebSocketServerManager {
 
     /// Queues a block update from world events.
     pub fn queue_delta_update(&self, pos: [i32; 3], new_state: &str) {
-        if let Some(sel) = self.selection_manager.current_selection() {
-            if sel.contains(pos) {
-                self.delta_queue.queue_change(pos, new_state);
-            }
+        if let Some(sel) = self.selection_manager.current_selection()
+            && sel.contains(pos)
+        {
+            self.delta_queue.queue_change(pos, new_state);
         }
     }
 
@@ -341,10 +341,10 @@ fn perform_ws_handshake(mut stream: TcpStream) -> io::Result<WebSocket<TcpStream
             break;
         }
         let lower = line.to_ascii_lowercase();
-        if lower.starts_with("sec-websocket-key:") {
-            if let Some((_, val)) = line.split_once(':') {
-                key = Some(val.trim().to_string());
-            }
+        if lower.starts_with("sec-websocket-key:")
+            && let Some((_, val)) = line.split_once(':')
+        {
+            key = Some(val.trim().to_string());
         }
     }
 

@@ -7,7 +7,7 @@ use thiserror::Error;
 use xxhash_rust::xxh64::Xxh64;
 
 use super::provider::WorldBlockProvider;
-use crate::protocol::{normalize_canonical_blockstate, SPARSE_CANONICAL_VERSION};
+use crate::protocol::{SPARSE_CANONICAL_VERSION, normalize_canonical_blockstate};
 use crate::selection::SelectionBox;
 
 #[derive(Debug, Error)]

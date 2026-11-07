@@ -4,7 +4,7 @@ pub mod hooks;
 
 use std::sync::Arc;
 
-use crate::command::{execute_command, CommandOutput};
+use crate::command::{CommandOutput, execute_command};
 use crate::config::YefiraConfig;
 use crate::ghost::{GhostAnchorManager, GhostMode};
 use crate::scanner::WorldBlockProvider;
@@ -71,7 +71,8 @@ impl YefiraMod {
 
     /// Marks the active selection as needing a full world block scan from Horizon.
     pub fn request_world_rescan(&self) {
-        self.needs_world_rescan.store(true, std::sync::atomic::Ordering::Release);
+        self.needs_world_rescan
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     /// Lifecycle hook: Server started / world loaded.
