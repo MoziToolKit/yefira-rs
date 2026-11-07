@@ -1,3 +1,11 @@
 /target
 /dist
 *.hnmod
+
+# General
+.DS_Store
+.localized
+__MACOSX/
+.AppleDouble
+.LSOverride
+Icon[]
