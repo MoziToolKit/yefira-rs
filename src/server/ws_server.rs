@@ -22,8 +22,23 @@ use crate::protocol::*;
 use crate::scanner::{CanonicalVoxelScanner, WorldBlockProvider};
 use crate::selection::SelectionManager;
 
+fn generate_random_uuid() -> [u8; 16] {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    let c = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut hasher = Sha1::new();
+    hasher.update(now.as_nanos().to_le_bytes());
+    hasher.update(c.to_le_bytes());
+    let digest = hasher.finalize();
+    let mut uuid = [0u8; 16];
+    uuid.copy_from_slice(&digest[..16]);
+    uuid
+}
+
 struct SharedServerState {
-    server_uuid: [u8; 16],
+    server_uuid: RwLock<[u8; 16]>,
     epoch: AtomicU64,
     global_seq_id: AtomicU64,
     cached_state_hash: AtomicU64,
@@ -57,11 +72,10 @@ impl WebSocketServerManager {
         selection_manager: Arc<SelectionManager>,
         delta_queue: Arc<DeltaQueue>,
     ) -> Self {
-        let mut uuid = [0u8; 16];
-        uuid.copy_from_slice(b"YEFIRA_HORIZON_1");
+        let uuid = generate_random_uuid();
 
         let shared = Arc::new(SharedServerState {
-            server_uuid: uuid,
+            server_uuid: RwLock::new(uuid),
             epoch: AtomicU64::new(1),
             global_seq_id: AtomicU64::new(1),
             cached_state_hash: AtomicU64::new(0),
@@ -287,6 +301,36 @@ impl WebSocketServerManager {
     #[inline]
     pub fn epoch(&self) -> u64 {
         self.shared.epoch.load(Ordering::Acquire)
+    }
+
+    /// Returns the active server session UUID (16 bytes).
+    #[inline]
+    pub fn server_uuid(&self) -> [u8; 16] {
+        *self.shared.server_uuid.read()
+    }
+
+    /// Returns the authoritative cached state hash.
+    #[inline]
+    pub fn cached_state_hash(&self) -> u64 {
+        self.shared.cached_state_hash.load(Ordering::Acquire)
+    }
+
+    /// Sets the authoritative cached state hash.
+    #[inline]
+    pub fn set_cached_state_hash(&self, hash: u64) {
+        self.shared.cached_state_hash.store(hash, Ordering::Release);
+    }
+
+    /// Rotates the session identity for a new or reloaded world (RFC v3.1 / Java parity).
+    /// Generates a new random UUID, increments epoch, and invalidates cached state hash.
+    pub fn reset_session_for_new_world(&self) {
+        let new_uuid = generate_random_uuid();
+        *self.shared.server_uuid.write() = new_uuid;
+        self.shared.epoch.fetch_add(1, Ordering::SeqCst);
+        self.shared.global_seq_id.store(1, Ordering::SeqCst);
+        self.shared.cached_state_hash.store(0, Ordering::Release);
+        self.delta_queue.clear();
+        log::info!("Yefira: Rotated live sync session UUID and bumped epoch");
     }
 
     /// Performs a manual baseline scan and streams it to all connected clients.
@@ -530,10 +574,13 @@ fn handle_inbound_packet(
     match packet {
         Packet::Hello {
             auth_token,
+            cached_world_uuid,
+            cached_epoch,
+            cached_seq,
             cached_min,
             cached_size,
             cached_state_hash,
-            cached_epoch,
+            cached_dimension,
             ..
         } => {
             let client_ip = session.addr.ip().to_string();
@@ -556,9 +603,10 @@ fn handle_inbound_packet(
 
             let Some(box_3d) = sel else {
                 log::info!("No active selection box; returning Rejected decision");
+                let cur_uuid = *shared.server_uuid.read();
                 let welcome = Packet::Welcome {
                     negotiated_version: PROTOCOL_VERSION as u16,
-                    server_uuid: shared.server_uuid,
+                    server_uuid: cur_uuid,
                     epoch: shared.epoch.load(Ordering::Acquire),
                     server_seq: shared.global_seq_id.load(Ordering::Acquire),
                     current_min: glam::IVec3::ZERO,
@@ -571,17 +619,29 @@ fn handle_inbound_packet(
                 return;
             };
 
+            let cur_uuid = *shared.server_uuid.read();
             let cur_min = box_3d.min_ivec3();
             let cur_size = box_3d.size_ivec3();
             let cur_epoch = shared.epoch.load(Ordering::Acquire);
+            let cur_seq = shared.global_seq_id.load(Ordering::Acquire);
             let cur_hash = shared.cached_state_hash.load(Ordering::Acquire);
 
-            // Fast-path: Check if client's cached baseline matches authoritative state
-            if cur_hash != 0
-                && cached_state_hash == cur_hash
-                && cached_min == cur_min
-                && cached_size == cur_size
-                && cached_epoch == cur_epoch
+            let has_client_cache = cached_state_hash != 0 && cached_world_uuid != [0u8; 16];
+            let matches_uuid = cached_world_uuid == cur_uuid;
+            let matches_epoch = cached_epoch == cur_epoch;
+            let matches_seq = cached_seq == cur_seq;
+            let matches_bounds = cached_min == cur_min && cached_size == cur_size;
+            let matches_dimension = !cached_dimension.is_empty() && cached_dimension == dim;
+            let matches_hash = cur_hash != 0 && cached_state_hash == cur_hash;
+
+            // Fast-path: Check if client's cached baseline matches authoritative state (RFC v3.1 / Java parity)
+            if has_client_cache
+                && matches_uuid
+                && matches_epoch
+                && matches_seq
+                && matches_bounds
+                && matches_dimension
+                && matches_hash
             {
                 log::info!(
                     "Client {} matches current state hash 0x{:016X}; VerifiedSkipRebuild",
@@ -590,9 +650,9 @@ fn handle_inbound_packet(
                 );
                 let welcome = Packet::Welcome {
                     negotiated_version: PROTOCOL_VERSION as u16,
-                    server_uuid: shared.server_uuid,
+                    server_uuid: cur_uuid,
                     epoch: cur_epoch,
-                    server_seq: shared.global_seq_id.load(Ordering::Acquire),
+                    server_seq: cur_seq,
                     current_min: cur_min,
                     current_size: cur_size,
                     current_state_hash: cur_hash,
@@ -646,7 +706,7 @@ fn handle_inbound_packet(
 
             let welcome = Packet::Welcome {
                 negotiated_version: PROTOCOL_VERSION as u16,
-                server_uuid: shared.server_uuid,
+                server_uuid: cur_uuid,
                 epoch: cur_epoch,
                 server_seq: shared.global_seq_id.load(Ordering::Acquire),
                 current_min: cur_min,
@@ -669,8 +729,13 @@ fn handle_inbound_packet(
             }
 
             let mut snap_uuid = [0u8; 16];
-            snap_uuid.copy_from_slice(b"YEFIRA_SNAP_0001");
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
             let seq = shared.global_seq_id.fetch_add(1, Ordering::SeqCst) + 1;
+            snap_uuid[..8].copy_from_slice(&(ts as u64).to_le_bytes());
+            snap_uuid[8..16].copy_from_slice(&seq.to_le_bytes());
 
             let packets =
                 BaselineStreamer::build_baseline_packets(&scan, cur_epoch, snap_uuid, seq, 1);
@@ -723,8 +788,49 @@ fn handle_inbound_packet(
 
         Packet::ResyncRequest { reason, .. } => {
             log::info!("Client {} requested resync: {:?}", session.addr, reason);
-            // Re-trigger baseline on resync
             session.stream_gen.fetch_add(1, Ordering::SeqCst);
+            if let Some(box_3d) = selection_mgr.current_selection() {
+                let dim = selection_mgr.dimension();
+                if let Some(provider) = provider_lock.read().clone() {
+                    match CanonicalVoxelScanner::scan_baseline(&*provider, &box_3d, &dim, || false)
+                    {
+                        Ok(scan) => {
+                            shared
+                                .cached_state_hash
+                                .store(scan.state_hash, Ordering::Release);
+                            let cur_epoch = shared.epoch.load(Ordering::Acquire);
+                            let seq = shared.global_seq_id.fetch_add(1, Ordering::SeqCst) + 1;
+                            let mut snap_uuid = [0u8; 16];
+                            let ts = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_nanos();
+                            snap_uuid[..8].copy_from_slice(&(ts as u64).to_le_bytes());
+                            snap_uuid[8..16].copy_from_slice(&seq.to_le_bytes());
+
+                            let packets = BaselineStreamer::build_baseline_packets(
+                                &scan, cur_epoch, snap_uuid, seq, 1,
+                            );
+                            log::info!(
+                                "Streaming {} baseline packets on resync to client {}",
+                                packets.len(),
+                                session.addr
+                            );
+                            for p in &packets {
+                                let _ = ws.send(Message::Binary(encode_packet(p).into()));
+                            }
+                            let _ = ws.flush();
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "Resync baseline scan failed for client {}: {}",
+                                session.addr,
+                                e
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         _ => {}

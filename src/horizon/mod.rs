@@ -23,6 +23,7 @@ pub struct YefiraMod {
     pub ghost_anchor: Arc<GhostAnchorManager>,
     pub renderer: Arc<YefiraRenderer>,
     pub needs_world_rescan: Arc<std::sync::atomic::AtomicBool>,
+    pub scan_revision: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Default for YefiraMod {
@@ -52,6 +53,7 @@ impl YefiraMod {
         ));
 
         let needs_world_rescan = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let scan_revision = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let sm = server_manager.clone();
         let rescan_flag = needs_world_rescan.clone();
         selection_manager.add_listener(move |sel_opt, _dim| {
@@ -72,6 +74,7 @@ impl YefiraMod {
             ghost_anchor,
             renderer,
             needs_world_rescan,
+            scan_revision,
         }
     }
 
@@ -89,6 +92,11 @@ impl YefiraMod {
     /// Lifecycle hook: Server started / world loaded.
     pub fn on_server_started(&self, host: &dyn horizon_client::mod_api::Host) {
         log::info!("Yefira: Horizon server started, initializing Live Sync");
+        self.server_manager.reset_session_for_new_world();
+        self.scan_revision
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+        self.world_provider.clear_blocks();
+        self.world_provider.clear_biomes();
 
         if let Some(world_dir) = host.world_dir() {
             let storage_path = crate::selection::get_world_storage_path(&world_dir);
@@ -129,6 +137,9 @@ impl YefiraMod {
         self.server_manager.stop();
         self.selection_manager.reset_on_world_unload();
         self.delta_queue.clear();
+        self.server_manager.set_cached_state_hash(0);
+        self.world_provider.clear_blocks();
+        self.world_provider.clear_biomes();
     }
 
     /// Lifecycle hook: Server tick (pre/post phase). Flushes queued block deltas.

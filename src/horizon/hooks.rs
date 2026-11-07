@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use horizon_client::mod_api::{
-    BlockChangedEvent, CameraPoseEvent, CommandEvent, CommandsEvent, Flow, GuiLayerPreEvent, Hooks,
-    Host, HudEvent, KeyEvent, LevelDimension, LevelHost, NativeCommand, PerformCommandEvent,
-    RegisterCommandsEvent, RenderHandEvent, RenderHooks, ScreenClosingEvent,
+    BlockChangedEvent, CameraPoseEvent, ChunkLoadEvent, CommandEvent, CommandsEvent, Flow,
+    GuiLayerPreEvent, Hooks, Host, HudEvent, KeyEvent, LevelDimension, LevelHost, NativeCommand,
+    PerformCommandEvent, RegisterCommandsEvent, RenderHandEvent, RenderHooks, ScreenClosingEvent,
     ScreenKeyPressedPreEvent, ScreenMouseButtonPressedPreEvent, ScreenMouseButtonReleasedPreEvent,
     ScreenMouseDraggedPreEvent, ScreenMouseScrolledPreEvent, ScreenRenderPostEvent,
     ServerAboutToStartEvent, ServerStoppingEvent, ServerTickEvent, ServerTickPhase, Text,
@@ -32,6 +32,7 @@ pub struct YefiraModBridge {
     pending_screen_close: Mutex<Option<&'static str>>,
     pending_screen_open: Mutex<Option<&'static str>>,
     pending_block_changes: Mutex<Vec<(String, [i32; 3])>>,
+    forced_chunks: Mutex<Vec<[i32; 2]>>,
 }
 
 impl YefiraModBridge {
@@ -40,6 +41,7 @@ impl YefiraModBridge {
             pending_screen_close: Mutex::new(None),
             pending_screen_open: Mutex::new(None),
             pending_block_changes: Mutex::new(Vec::new()),
+            forced_chunks: Mutex::new(Vec::new()),
         }
     }
 }
@@ -102,9 +104,42 @@ impl Hooks for YefiraModBridge {
         yefira().on_server_started(host);
     }
 
-    /// Server stopping: shut down live sync server and clean up selections.
-    fn server_stopping(&self, _host: &mut dyn Host, _event: &mut ServerStoppingEvent) {
+    /// Chunk loaded in world: check if it intersects active selection and request rescan.
+    fn chunk_load(&self, _host: &mut dyn Host, event: &mut ChunkLoadEvent<'_>) {
+        if let Some(sel) = yefira().selection_manager.current_selection() {
+            let dim = yefira().selection_manager.dimension();
+            if event.dimension == dim {
+                let [cx, cz] = event.chunk;
+                let c_min_x = cx * 16;
+                let c_max_x = c_min_x + 15;
+                let c_min_z = cz * 16;
+                let c_max_z = c_min_z + 15;
+                let min = sel.min();
+                let max = sel.max();
+                let overlaps = c_min_x <= max[0]
+                    && c_max_x >= min[0]
+                    && c_min_z <= max[2]
+                    && c_max_z >= min[2];
+                if overlaps {
+                    log::debug!(
+                        "Yefira: Chunk [{}, {}] loaded inside active selection, requesting rescan",
+                        cx,
+                        cz
+                    );
+                    yefira().request_world_rescan();
+                }
+            }
+        }
+    }
+
+    /// Server stopping: shut down live sync server and clean up selections and chunk tickets.
+    fn server_stopping(&self, host: &mut dyn Host, _event: &mut ServerStoppingEvent) {
         log::info!("Yefira: Horizon server stopping, shutting down live sync server");
+        let mut forced = self.forced_chunks.lock();
+        for &chunk in forced.iter() {
+            host.force_chunk("yefira:selection", chunk, false);
+        }
+        forced.clear();
         yefira().on_server_stopping();
         yefira().ghost_anchor.clear();
     }
@@ -161,21 +196,107 @@ impl Hooks for YefiraModBridge {
                 yefira().on_block_changed(&dim, pos, "", &norm_state);
             }
 
-            // 2. Check if world rescan was requested (e.g. after selection was set or on refresh)
+            // 2. Manage chunk tickets and perform requested world baseline scans
+            let cur_sel = yefira().selection_manager.current_selection();
+            let dim = yefira().selection_manager.dimension();
+
+            let desired_chunks: Vec<[i32; 2]> = if let Some(ref sel) = cur_sel {
+                let min = sel.min();
+                let max = sel.max();
+                let c_min_x = min[0] >> 4;
+                let c_max_x = max[0] >> 4;
+                let c_min_z = min[2] >> 4;
+                let c_max_z = max[2] >> 4;
+                let mut chunks = Vec::new();
+                for cx in c_min_x..=c_max_x {
+                    for cz in c_min_z..=c_max_z {
+                        chunks.push([cx, cz]);
+                    }
+                }
+                chunks
+            } else {
+                Vec::new()
+            };
+
+            {
+                let mut forced = self.forced_chunks.lock();
+                for &old_c in forced.iter() {
+                    if !desired_chunks.contains(&old_c) {
+                        host.force_chunk("yefira:selection", old_c, false);
+                    }
+                }
+                for &new_c in desired_chunks.iter() {
+                    if !forced.contains(&new_c) {
+                        host.force_chunk("yefira:selection", new_c, true);
+                    }
+                }
+                *forced = desired_chunks.clone();
+            }
+
             if yefira()
                 .needs_world_rescan
-                .swap(false, std::sync::atomic::Ordering::AcqRel)
-                && let Some(sel) = yefira().selection_manager.current_selection()
+                .load(std::sync::atomic::Ordering::Acquire)
+                && let Some(ref sel) = cur_sel
             {
-                let dim = yefira().selection_manager.dimension();
-                let blocks = scan_selection_blocks(host, &sel, &dim);
-                yefira().world_provider.clear_blocks();
-                yefira().world_provider.bulk_set_blocks(blocks);
-                log::info!(
-                    "Yefira: Scanned {} world blocks into live sync provider",
-                    yefira().world_provider.blocks.read().len()
-                );
-                yefira().server_manager.refresh_all_clients();
+                let min = sel.min();
+                let level_opt = host
+                    .level(&dim)
+                    .or_else(|| host.level("minecraft:overworld"));
+                if let Some(level) = level_opt {
+                    let total_chunks = desired_chunks.len();
+                    let mut loaded_chunks = 0;
+                    for &[cx, cz] in &desired_chunks {
+                        if host.level_is_loaded(level, [cx * 16, min[1], cz * 16]) {
+                            loaded_chunks += 1;
+                        }
+                    }
+
+                    if loaded_chunks == 0 && total_chunks > 0 {
+                        log::debug!(
+                            "Yefira: Chunks for active selection not yet resident (0/{}); waiting for streaming",
+                            total_chunks
+                        );
+                        // Do NOT clear needs_world_rescan; let it scan once chunks arrive!
+                    } else {
+                        let blocks = scan_selection_blocks(host, sel, &dim);
+                        yefira().world_provider.clear_blocks();
+                        yefira().world_provider.bulk_set_blocks(blocks);
+                        crate::scanner::biome_reader::populate_selection_biomes(
+                            host,
+                            &dim,
+                            sel,
+                            &yefira().world_provider,
+                        );
+
+                        if let Ok(scan) = crate::scanner::CanonicalVoxelScanner::scan_baseline(
+                            &*yefira().world_provider,
+                            sel,
+                            &dim,
+                            || false,
+                        ) {
+                            yefira()
+                                .server_manager
+                                .set_cached_state_hash(scan.state_hash);
+                        }
+                        yefira()
+                            .scan_revision
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+                        log::info!(
+                            "Yefira: Scanned {} world blocks into live sync provider ({}/{} chunks loaded)",
+                            yefira().world_provider.blocks.read().len(),
+                            loaded_chunks,
+                            total_chunks
+                        );
+
+                        if loaded_chunks >= total_chunks {
+                            yefira()
+                                .needs_world_rescan
+                                .store(false, std::sync::atomic::Ordering::Release);
+                        }
+                        yefira().server_manager.refresh_all_clients();
+                    }
+                }
             }
 
             // 3. Flush pending deltas to connected DCC clients
@@ -226,6 +347,25 @@ impl Hooks for YefiraModBridge {
                     let blocks = scan_selection_blocks(host, &sel, &dim);
                     yefira().world_provider.clear_blocks();
                     yefira().world_provider.bulk_set_blocks(blocks);
+                    crate::scanner::biome_reader::populate_selection_biomes(
+                        host,
+                        &dim,
+                        &sel,
+                        &yefira().world_provider,
+                    );
+                    if let Ok(scan) = crate::scanner::CanonicalVoxelScanner::scan_baseline(
+                        &*yefira().world_provider,
+                        &sel,
+                        &dim,
+                        || false,
+                    ) {
+                        yefira()
+                            .server_manager
+                            .set_cached_state_hash(scan.state_hash);
+                    }
+                    yefira()
+                        .scan_revision
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     yefira().server_manager.refresh_all_clients();
                 }
 
