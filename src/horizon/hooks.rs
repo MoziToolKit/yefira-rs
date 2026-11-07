@@ -31,6 +31,7 @@ pub fn hooks() -> Box<dyn Hooks> {
 pub struct YefiraModBridge {
     pending_screen_close: Mutex<Option<&'static str>>,
     pending_screen_open: Mutex<Option<&'static str>>,
+    pending_block_changes: Mutex<Vec<(String, [i32; 3])>>,
 }
 
 impl YefiraModBridge {
@@ -38,6 +39,7 @@ impl YefiraModBridge {
         Self {
             pending_screen_close: Mutex::new(None),
             pending_screen_open: Mutex::new(None),
+            pending_block_changes: Mutex::new(Vec::new()),
         }
     }
 }
@@ -54,6 +56,21 @@ fn scan_selection_blocks(
     sel: &SelectionBox,
     dim: &str,
 ) -> HashMap<[i32; 3], String> {
+    // Set appropriate default biome for the dimension
+    if dim.contains("nether") {
+        yefira()
+            .world_provider
+            .set_default_biome("minecraft:nether_wastes");
+    } else if dim.contains("end") {
+        yefira()
+            .world_provider
+            .set_default_biome("minecraft:the_end");
+    } else {
+        yefira()
+            .world_provider
+            .set_default_biome("minecraft:plains");
+    }
+
     let mut blocks = HashMap::new();
     let level = host
         .level(dim)
@@ -101,7 +118,31 @@ impl Hooks for YefiraModBridge {
     /// Server tick: flush pending voxel deltas and perform requested world baseline scans.
     fn server_tick(&self, host: &mut dyn Host, event: &mut ServerTickEvent<'_>) {
         if matches!(event.phase, ServerTickPhase::ServerTickEnd { .. }) {
-            // Check if world rescan was requested (e.g. after selection was set or on refresh)
+            // 1. Process pending block changes (place, break, update)
+            let dirty_blocks: Vec<(String, [i32; 3])> = {
+                let mut lock = self.pending_block_changes.lock();
+                std::mem::take(&mut *lock)
+            };
+
+            for (dim, pos) in dirty_blocks {
+                let level_opt = host.level(&dim);
+                let state_str = if let Some(lvl) = level_opt {
+                    host.level_block_state(lvl, pos)
+                        .unwrap_or_else(|| "minecraft:air".to_string())
+                } else {
+                    "minecraft:air".to_string()
+                };
+
+                let norm_state = if state_str.ends_with(":air") || state_str.contains("air") {
+                    "minecraft:air".to_string()
+                } else {
+                    state_str
+                };
+
+                yefira().on_block_changed(&dim, pos, "", &norm_state);
+            }
+
+            // 2. Check if world rescan was requested (e.g. after selection was set or on refresh)
             if yefira()
                 .needs_world_rescan
                 .swap(false, std::sync::atomic::Ordering::AcqRel)
@@ -117,12 +158,14 @@ impl Hooks for YefiraModBridge {
                 );
                 yefira().server_manager.refresh_all_clients();
             }
+
+            // 3. Flush pending deltas to connected DCC clients
             yefira().on_server_tick();
         }
     }
 
     /// Block changed in world: record changes within active selection.
-    fn block_changed(&self, level: &dyn LevelHost, event: &mut BlockChangedEvent) {
+    fn block_changed(&self, _level: &dyn LevelHost, event: &mut BlockChangedEvent) {
         let dim_str = match event.dimension {
             LevelDimension::Overworld => "minecraft:overworld",
             LevelDimension::Nether => "minecraft:the_nether",
@@ -130,8 +173,15 @@ impl Hooks for YefiraModBridge {
         };
 
         let pos = [event.pos.x, event.pos.y, event.pos.z];
-        let _ = level.block_state(pos);
-        yefira().on_block_changed(dim_str, pos, "", "minecraft:stone");
+        if let Some(sel) = yefira().selection_manager.current_selection()
+            && yefira().selection_manager.dimension() == dim_str
+            && sel.contains(pos)
+        {
+            let mut lock = self.pending_block_changes.lock();
+            if !lock.iter().any(|(d, p)| d == dim_str && *p == pos) {
+                lock.push((dim_str.to_string(), pos));
+            }
+        }
     }
 
     /// Server-side command execution (`Commands.performCommand`).

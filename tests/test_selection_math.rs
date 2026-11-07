@@ -341,3 +341,78 @@ fn test_ghost_box_creation_lifecycle() {
     assert_eq!(finished, Some(([10, 64, 10], [15, 70, 18])));
     assert!(!state.is_box_creating);
 }
+
+#[test]
+fn test_selection_lifecycle_rescan_and_cancel() {
+    use std::sync::atomic::Ordering;
+    use yefira_rs::config::YefiraConfig;
+    use yefira_rs::horizon::YefiraMod;
+
+    let yefira = YefiraMod::new(YefiraConfig::default());
+
+    // Initially rescan is false
+    assert!(!yefira.needs_world_rescan.load(Ordering::Acquire));
+
+    // Setting a selection flags rescan automatically
+    yefira
+        .selection_manager
+        .set_selection([0, 64, 0], [10, 70, 10], "minecraft:overworld");
+    assert!(yefira.needs_world_rescan.load(Ordering::Acquire));
+
+    // Reset flag as if handled by server tick
+    yefira.needs_world_rescan.store(false, Ordering::Release);
+
+    // Moving selection flags rescan again
+    yefira
+        .selection_manager
+        .set_selection([5, 64, 5], [15, 70, 15], "minecraft:overworld");
+    assert!(yefira.needs_world_rescan.load(Ordering::Acquire));
+
+    // Refresh all clients must preserve constant epoch
+    let initial_epoch = yefira.server_manager.epoch();
+    yefira.server_manager.refresh_all_clients();
+    assert_eq!(yefira.server_manager.epoch(), initial_epoch);
+
+    // Clearing selection triggers cancel and resets cached hash
+    yefira.selection_manager.clear();
+    assert_eq!(yefira.selection_manager.current_selection(), None);
+}
+
+#[test]
+fn test_incremental_block_updates_within_selection() {
+    use yefira_rs::config::YefiraConfig;
+    use yefira_rs::horizon::YefiraMod;
+
+    let yefira = YefiraMod::new(YefiraConfig::default());
+    yefira
+        .selection_manager
+        .set_selection([0, 64, 0], [10, 70, 10], "minecraft:overworld");
+
+    // 1. Block change inside selection -> queued
+    yefira.on_block_changed(
+        "minecraft:overworld",
+        [5, 65, 5],
+        "minecraft:stone",
+        "minecraft:oak_stairs[facing=east]",
+    );
+    assert!(!yefira.delta_queue.is_empty());
+
+    // 2. Block change outside selection -> ignored
+    yefira.delta_queue.clear();
+    yefira.on_block_changed(
+        "minecraft:overworld",
+        [50, 65, 50],
+        "minecraft:stone",
+        "minecraft:dirt",
+    );
+    assert!(yefira.delta_queue.is_empty());
+
+    // 3. Block change in different dimension -> ignored
+    yefira.on_block_changed(
+        "minecraft:the_nether",
+        [5, 65, 5],
+        "minecraft:stone",
+        "minecraft:netherrack",
+    );
+    assert!(yefira.delta_queue.is_empty());
+}

@@ -22,7 +22,7 @@ pub struct YefiraMod {
     pub ghost_mode: Arc<GhostMode>,
     pub ghost_anchor: Arc<GhostAnchorManager>,
     pub renderer: Arc<YefiraRenderer>,
-    pub needs_world_rescan: std::sync::atomic::AtomicBool,
+    pub needs_world_rescan: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for YefiraMod {
@@ -51,6 +51,17 @@ impl YefiraMod {
             ghost_mode.clone(),
         ));
 
+        let needs_world_rescan = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let sm = server_manager.clone();
+        let rescan_flag = needs_world_rescan.clone();
+        selection_manager.add_listener(move |sel_opt, _dim| {
+            if sel_opt.is_some() {
+                rescan_flag.store(true, std::sync::atomic::Ordering::Release);
+            } else {
+                sm.broadcast_cancel_selection();
+            }
+        });
+
         Self {
             config,
             selection_manager,
@@ -60,7 +71,7 @@ impl YefiraMod {
             ghost_mode,
             ghost_anchor,
             renderer,
-            needs_world_rescan: std::sync::atomic::AtomicBool::new(false),
+            needs_world_rescan,
         }
     }
 
@@ -115,7 +126,10 @@ impl YefiraMod {
         _old_state: &str,
         new_state: &str,
     ) {
-        if self.selection_manager.dimension() == dimension {
+        if self.selection_manager.dimension() == dimension
+            && let Some(sel) = self.selection_manager.current_selection()
+            && sel.contains(pos)
+        {
             self.world_provider.set_block(pos, new_state);
             self.server_manager.queue_delta_update(pos, new_state);
         }

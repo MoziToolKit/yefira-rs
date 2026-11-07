@@ -283,6 +283,12 @@ impl WebSocketServerManager {
         }
     }
 
+    /// Returns the current server lifetime epoch.
+    #[inline]
+    pub fn epoch(&self) -> u64 {
+        self.shared.epoch.load(Ordering::Acquire)
+    }
+
     /// Performs a manual baseline scan and streams it to all connected clients.
     pub fn refresh_all_clients(&self) {
         let clients = self.shared.clients.lock().clone();
@@ -298,14 +304,34 @@ impl WebSocketServerManager {
 
         match CanonicalVoxelScanner::scan_baseline(&*provider_arc, &sel, &dim, || false) {
             Ok(scan) => {
-                let epoch = self.shared.epoch.fetch_add(1, Ordering::SeqCst) + 1;
+                // Keep the constant server epoch (never increment epoch during an active session)
+                let epoch = self.shared.epoch.load(Ordering::Acquire);
                 let seq = self.shared.global_seq_id.fetch_add(1, Ordering::SeqCst) + 1;
                 let mut snap_uuid = [0u8; 16];
-                snap_uuid.copy_from_slice(b"YEFIRA_SNAP_0001");
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos();
+                snap_uuid[..8].copy_from_slice(&(ts as u64).to_le_bytes());
+                snap_uuid[8..16].copy_from_slice(&seq.to_le_bytes());
 
                 self.shared
                     .cached_state_hash
                     .store(scan.state_hash, Ordering::Release);
+
+                // Synchronize shared palette with new baseline palette
+                {
+                    let mut pal = self.shared.palette_lock.lock();
+                    pal.palette_lookup.clear();
+                    for (id, name) in scan.block_palette.iter().enumerate() {
+                        pal.palette_lookup.insert(name.clone(), id as u16);
+                    }
+                    pal.palette_list = scan.block_palette.clone();
+                    pal.palette_revision = 1;
+                }
+
+                // Clear in-flight deltas as we are establishing a new baseline barrier
+                self.delta_queue.clear();
 
                 let packets =
                     BaselineStreamer::build_baseline_packets(&scan, epoch, snap_uuid, seq, 1);
@@ -313,12 +339,34 @@ impl WebSocketServerManager {
                 for pkt in &packets {
                     let raw = encode_packet(pkt);
                     for s in clients.values() {
-                        s.send_raw(raw.clone());
+                        if s.is_authenticated() {
+                            s.send_raw(raw.clone());
+                        }
                     }
                 }
             }
             Err(e) => {
                 log::error!("Failed to scan baseline for refresh: {}", e);
+            }
+        }
+    }
+
+    /// Broadcasts a CANCEL packet (reason: SelectionChanged) to all clients and resets snapshot hash.
+    pub fn broadcast_cancel_selection(&self) {
+        let clients = self.shared.clients.lock().clone();
+        let epoch = self.shared.epoch.load(Ordering::Acquire);
+        self.delta_queue.clear();
+        self.shared.cached_state_hash.store(0, Ordering::Release);
+
+        let cancel = Packet::Cancel {
+            epoch,
+            snapshot_uuid: [0u8; 16],
+            reason: CancelReason::SelectionChanged,
+        };
+        let raw = encode_packet(&cancel);
+        for s in clients.values() {
+            if s.is_authenticated() {
+                s.send_raw(raw.clone());
             }
         }
     }

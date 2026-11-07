@@ -85,7 +85,7 @@ pub struct TrackingWorldProvider {
     string_lookup: parking_lot::RwLock<HashMap<String, u32>>,
     pub blocks: parking_lot::RwLock<HashMap<[i32; 3], u32>>,
     pub biomes: parking_lot::RwLock<HashMap<[i32; 3], u32>>,
-    default_biome: &'static str,
+    default_biome: parking_lot::RwLock<&'static str>,
 }
 
 impl Default for TrackingWorldProvider {
@@ -112,7 +112,7 @@ impl TrackingWorldProvider {
             string_lookup: parking_lot::RwLock::new(string_lookup),
             blocks: parking_lot::RwLock::new(HashMap::new()),
             biomes: parking_lot::RwLock::new(HashMap::new()),
-            default_biome: "minecraft:plains",
+            default_biome: parking_lot::RwLock::new("minecraft:plains"),
         }
     }
 
@@ -152,6 +152,14 @@ impl TrackingWorldProvider {
         self.blocks.write().clear();
     }
 
+    pub fn set_default_biome(&self, biome: &'static str) {
+        *self.default_biome.write() = biome;
+    }
+
+    pub fn clear_biomes(&self) {
+        self.biomes.write().clear();
+    }
+
     pub fn set_biome(&self, quart_pos: [i32; 3], biome: &str) {
         let id = self.intern(biome);
         self.biomes.write().insert(quart_pos, id);
@@ -180,8 +188,8 @@ impl WorldBlockProvider for TrackingWorldProvider {
                 .read()
                 .get(id as usize)
                 .copied()
-                .unwrap_or(self.default_biome),
-            None => self.default_biome,
+                .unwrap_or(*self.default_biome.read()),
+            None => *self.default_biome.read(),
         }
     }
 }
