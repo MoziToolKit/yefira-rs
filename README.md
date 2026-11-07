@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![RFC v3.1](https://img.shields.io/badge/protocol-RFC%20v3.1%20compliant-blue.svg)](../MoziToolKit/docs/live_sync/live_sync_protocol.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 `yefira-rs` is the pure-Rust port of the **Yefira Live Sync Mod** designed specifically for **[Horizon](../horizon)** (Minecraft: Java Edition client/server rewritten in Rust & wgpu).
 
