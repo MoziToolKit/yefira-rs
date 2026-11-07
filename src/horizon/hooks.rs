@@ -50,26 +50,20 @@ impl Default for YefiraModBridge {
     }
 }
 
-/// Reads all block states within the active selection box from Horizon's world.
+/// Reads all block states within the active selection box from Horizon's world,
+/// and populates 3D quart biomes into the live sync provider directly from runtime memory.
 fn scan_selection_blocks(
     host: &dyn Host,
     sel: &SelectionBox,
     dim: &str,
 ) -> HashMap<[i32; 3], String> {
-    // Set appropriate default biome for the dimension
-    if dim.contains("nether") {
-        yefira()
-            .world_provider
-            .set_default_biome("minecraft:nether_wastes");
-    } else if dim.contains("end") {
-        yefira()
-            .world_provider
-            .set_default_biome("minecraft:the_end");
-    } else {
-        yefira()
-            .world_provider
-            .set_default_biome("minecraft:plains");
-    }
+    // 1. Populate 3D biomes directly from runtime memory
+    crate::scanner::biome_reader::populate_selection_biomes(
+        host,
+        dim,
+        sel,
+        &yefira().world_provider,
+    );
 
     let mut blocks = HashMap::new();
     let level = host

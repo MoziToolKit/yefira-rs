@@ -17,7 +17,7 @@ serde_json = "1.0"
 parking_lot = "0.12"
 thiserror = "2.0"
 log = "0.4"
-horizon-client = { git = "https://github.com/horizon-rust/horizon.git", rev = "41f822b659789780f58d32c63ddfb6887ea1b8bf", default-features = false }
+horizon-client = { git = "https://github.com/horizon-rust/horizon.git", rev = "f4858e8a25244093a84ec6468c3fd262ea0c3299", default-features = false }
 
 [dev-dependencies]
 env_logger = "0.11"
