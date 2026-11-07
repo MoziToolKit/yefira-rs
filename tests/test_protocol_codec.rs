@@ -165,8 +165,8 @@ fn test_cross_interoperability_with_libmozitoolkit_mtk_sync() {
         assert_eq!(server_uuid, [9u8; 16]);
         assert_eq!(epoch, 77);
         assert_eq!(server_seq, 300);
-        assert_eq!(current_min, IVec3::new(-10, 60, -10));
-        assert_eq!(current_size, IVec3::new(32, 32, 32));
+        assert_eq!(current_min, glam_mtk::IVec3::new(-10, 60, -10));
+        assert_eq!(current_size, glam_mtk::IVec3::new(32, 32, 32));
         assert_eq!(current_state_hash, 0x1122334455667788);
         assert_eq!(decision, mtk_sync::SyncDecision::VerifiedSkipRebuild);
         assert_eq!(message_or_dimension, "minecraft:overworld");
@@ -183,8 +183,8 @@ fn test_cross_interoperability_with_libmozitoolkit_mtk_sync() {
         cached_world_uuid: [5u8; 16],
         cached_epoch: 10,
         cached_seq: 50,
-        cached_min: IVec3::new(0, 64, 0),
-        cached_size: IVec3::new(16, 16, 16),
+        cached_min: glam_mtk::IVec3::new(0, 64, 0),
+        cached_size: glam_mtk::IVec3::new(16, 16, 16),
         cached_state_hash: 0x9999AAAA,
         auth_token: "mtk_auth_abc".to_string(),
         cached_dimension: "minecraft:overworld".to_string(),

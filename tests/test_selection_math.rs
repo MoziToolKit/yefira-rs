@@ -149,6 +149,22 @@ fn test_horizon_command_dispatch() {
     assert_eq!(sel.size_y(), 11);
     assert_eq!(sel.size_z(), 11);
 
+    // /yefira pos1 without args uses player pos
+    let res3 = yefira.handle_chat_command("yefira pos1", Some([5, 60, 5]), dim);
+    assert!(res3.is_some() && res3.unwrap().is_success());
+
+    // /yefira ghost on / off / status
+    let res_ghost_on = yefira.handle_chat_command("yefira ghost on", Some([5, 60, 5]), dim);
+    assert!(res_ghost_on.is_some() && res_ghost_on.unwrap().is_success());
+    assert!(yefira.ghost_mode.is_active());
+
+    let res_ghost_status = yefira.handle_chat_command("yefira ghost status", None, dim);
+    assert!(res_ghost_status.is_some() && res_ghost_status.unwrap().is_success());
+
+    let res_ghost_off = yefira.handle_chat_command("yefira ghost off", None, dim);
+    assert!(res_ghost_off.is_some() && res_ghost_off.unwrap().is_success());
+    assert!(!yefira.ghost_mode.is_active());
+
     // /yefira clear
     let res_clear = yefira.handle_chat_command("/yefira clear", None, dim);
     assert!(res_clear.is_some());

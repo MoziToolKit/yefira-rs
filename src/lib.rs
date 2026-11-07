@@ -11,11 +11,13 @@
 
 pub mod command;
 pub mod config;
+pub mod ghost;
 pub mod horizon;
 pub mod protocol;
 pub mod scanner;
 pub mod selection;
 pub mod server;
+pub mod visual;
 
 pub use command::{execute_command, CommandOutput};
 pub use config::YefiraConfig;
@@ -35,5 +37,4 @@ pub use server::{
     BaselineStreamer, BlockChangeRecord, ClientSession, DeltaQueue, WebSocketServerManager,
 };
 
-#[cfg(feature = "horizon")]
 pub use horizon::hooks::hooks;

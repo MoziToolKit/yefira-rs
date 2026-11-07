@@ -81,9 +81,11 @@ impl WorldBlockProvider for InMemoryWorld {
 /// Thread-safe tracking world provider that dynamically updates as blocks change in the game.
 #[derive(Debug)]
 pub struct TrackingWorldProvider {
-    pub blocks: parking_lot::RwLock<HashMap<[i32; 3], &'static str>>,
-    pub biomes: parking_lot::RwLock<HashMap<[i32; 3], &'static str>>,
-    pub default_biome: String,
+    strings: parking_lot::RwLock<Vec<&'static str>>,
+    string_lookup: parking_lot::RwLock<HashMap<String, u32>>,
+    pub blocks: parking_lot::RwLock<HashMap<[i32; 3], u32>>,
+    pub biomes: parking_lot::RwLock<HashMap<[i32; 3], u32>>,
+    default_biome: &'static str,
 }
 
 impl Default for TrackingWorldProvider {
@@ -94,38 +96,92 @@ impl Default for TrackingWorldProvider {
 
 impl TrackingWorldProvider {
     pub fn new() -> Self {
+        let mut strings = Vec::new();
+        let mut string_lookup = HashMap::new();
+
+        // 0 is always air
+        strings.push("minecraft:air");
+        string_lookup.insert("minecraft:air".to_string(), 0);
+
+        // 1 is default plains biome
+        strings.push("minecraft:plains");
+        string_lookup.insert("minecraft:plains".to_string(), 1);
+
         Self {
+            strings: parking_lot::RwLock::new(strings),
+            string_lookup: parking_lot::RwLock::new(string_lookup),
             blocks: parking_lot::RwLock::new(HashMap::new()),
             biomes: parking_lot::RwLock::new(HashMap::new()),
-            default_biome: "minecraft:plains".to_string(),
+            default_biome: "minecraft:plains",
         }
     }
 
+    /// Interns a block state or biome string, returning its unique integer ID.
+    fn intern(&self, s: &str) -> u32 {
+        if let Some(&id) = self.string_lookup.read().get(s) {
+            return id;
+        }
+
+        let mut lookup = self.string_lookup.write();
+        if let Some(&id) = lookup.get(s) {
+            return id;
+        }
+
+        let leaked: &'static str = Box::leak(s.to_string().into_boxed_str());
+        let mut strings = self.strings.write();
+        let id = strings.len() as u32;
+        strings.push(leaked);
+        lookup.insert(s.to_string(), id);
+        id
+    }
+
     pub fn set_block(&self, pos: [i32; 3], state: &str) {
-        let leaked: &'static str = Box::leak(state.to_string().into_boxed_str());
-        self.blocks.write().insert(pos, leaked);
+        let id = self.intern(state);
+        self.blocks.write().insert(pos, id);
+    }
+
+    pub fn bulk_set_blocks(&self, block_map: HashMap<[i32; 3], String>) {
+        let mut write_blocks = self.blocks.write();
+        for (pos, state) in block_map {
+            let id = self.intern(&state);
+            write_blocks.insert(pos, id);
+        }
+    }
+
+    pub fn clear_blocks(&self) {
+        self.blocks.write().clear();
     }
 
     pub fn set_biome(&self, quart_pos: [i32; 3], biome: &str) {
-        let leaked: &'static str = Box::leak(biome.to_string().into_boxed_str());
-        self.biomes.write().insert(quart_pos, leaked);
+        let id = self.intern(biome);
+        self.biomes.write().insert(quart_pos, id);
     }
 }
 
 impl WorldBlockProvider for TrackingWorldProvider {
     fn get_block_state(&self, pos: [i32; 3]) -> &str {
-        self.blocks
-            .read()
-            .get(&pos)
-            .copied()
-            .unwrap_or("minecraft:air")
+        let id_opt = self.blocks.read().get(&pos).copied();
+        match id_opt {
+            Some(id) => self
+                .strings
+                .read()
+                .get(id as usize)
+                .copied()
+                .unwrap_or("minecraft:air"),
+            None => "minecraft:air",
+        }
     }
 
     fn get_quart_biome(&self, quart_pos: [i32; 3]) -> &str {
-        self.biomes
-            .read()
-            .get(&quart_pos)
-            .copied()
-            .unwrap_or(&self.default_biome)
+        let id_opt = self.biomes.read().get(&quart_pos).copied();
+        match id_opt {
+            Some(id) => self
+                .strings
+                .read()
+                .get(id as usize)
+                .copied()
+                .unwrap_or(self.default_biome),
+            None => self.default_biome,
+        }
     }
 }

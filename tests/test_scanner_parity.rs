@@ -82,8 +82,8 @@ fn test_scanner_state_hash_parity_with_libmozitoolkit() {
     }
 
     let mtk_expected_hash = mtk_sync::compute_sparse_state_hash(
-        IVec3::new(0, 60, 0),
-        IVec3::new(4, 4, 4),
+        glam_mtk::IVec3::new(0, 60, 0),
+        glam_mtk::IVec3::new(4, 4, 4),
         dimension,
         mtk_entries,
     );

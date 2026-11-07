@@ -167,6 +167,12 @@ impl SelectionBox {
         self.size_x() > max_side || self.size_y() > max_side || self.size_z() > max_side
     }
 
+    /// Checks if the selection box exceeds standard default limits (1M voxels, 256 side).
+    #[inline]
+    pub fn is_oversized_default(&self) -> bool {
+        self.is_oversized(1_000_000, 256)
+    }
+
     /// Expands or contracts the box in a given direction.
     pub fn expand(&self, dir: Direction, amount: i32) -> Self {
         let mut min = self.min;

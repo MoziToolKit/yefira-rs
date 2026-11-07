@@ -1,15 +1,16 @@
 //! Horizon client and server mod integration adapter.
 
-#[cfg(feature = "horizon")]
 pub mod hooks;
 
 use std::sync::Arc;
 
 use crate::command::{execute_command, CommandOutput};
 use crate::config::YefiraConfig;
+use crate::ghost::{GhostAnchorManager, GhostMode};
 use crate::scanner::WorldBlockProvider;
 use crate::selection::{SelectionBox, SelectionManager};
 use crate::server::{DeltaQueue, WebSocketServerManager};
+use crate::visual::YefiraRenderer;
 
 /// Central controller managing Yefira state within Horizon.
 pub struct YefiraMod {
@@ -18,6 +19,10 @@ pub struct YefiraMod {
     pub delta_queue: Arc<DeltaQueue>,
     pub server_manager: Arc<WebSocketServerManager>,
     pub world_provider: Arc<crate::scanner::TrackingWorldProvider>,
+    pub ghost_mode: Arc<GhostMode>,
+    pub ghost_anchor: Arc<GhostAnchorManager>,
+    pub renderer: Arc<YefiraRenderer>,
+    pub needs_world_rescan: std::sync::atomic::AtomicBool,
 }
 
 impl Default for YefiraMod {
@@ -39,18 +44,34 @@ impl YefiraMod {
         let world_provider = Arc::new(crate::scanner::TrackingWorldProvider::new());
         server_manager.set_provider(world_provider.clone());
 
+        let ghost_mode = Arc::new(GhostMode::new());
+        let ghost_anchor = Arc::new(GhostAnchorManager::new());
+        let renderer = Arc::new(YefiraRenderer::new(
+            selection_manager.clone(),
+            ghost_mode.clone(),
+        ));
+
         Self {
             config,
             selection_manager,
             delta_queue,
             server_manager,
             world_provider,
+            ghost_mode,
+            ghost_anchor,
+            renderer,
+            needs_world_rescan: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
     /// Attaches an authoritative Horizon world block provider.
     pub fn attach_world_provider(&self, provider: Arc<dyn WorldBlockProvider>) {
         self.server_manager.set_provider(provider);
+    }
+
+    /// Marks the active selection as needing a full world block scan from Horizon.
+    pub fn request_world_rescan(&self) {
+        self.needs_world_rescan.store(true, std::sync::atomic::Ordering::Release);
     }
 
     /// Lifecycle hook: Server started / world loaded.
@@ -112,6 +133,8 @@ impl YefiraMod {
             dimension,
             &self.selection_manager,
             &self.server_manager,
+            Some(&self.ghost_mode),
+            Some(&self.ghost_anchor),
         )
     }
 

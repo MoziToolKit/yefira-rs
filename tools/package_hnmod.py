@@ -119,10 +119,6 @@ serde_json = "1.0"
 parking_lot = "0.12"
 thiserror = "2.0"
 log = "0.4"
-
-[features]
-default = ["horizon"]
-horizon = ["dep:horizon-client"]
 """
     with open(api_dir / "Cargo.toml", "w", encoding="utf-8") as f:
         f.write(api_cargo_toml)

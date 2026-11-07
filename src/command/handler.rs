@@ -33,6 +33,8 @@ pub fn execute_command(
     dimension: &str,
     selection_mgr: &Arc<SelectionManager>,
     server_mgr: &Arc<WebSocketServerManager>,
+    ghost_mode: Option<&crate::ghost::GhostMode>,
+    ghost_anchor: Option<&crate::ghost::GhostAnchorManager>,
 ) -> CommandOutput {
     if args.is_empty() {
         return CommandOutput::Success(
@@ -326,8 +328,70 @@ pub fn execute_command(
             }
         }
 
+        "ghost" => {
+            if args.len() < 2 {
+                return CommandOutput::Success(
+                    "Ghost Mode: use '/yefira ghost <on|off|toggle|status>'".into(),
+                );
+            }
+            let Some(ghost) = ghost_mode else {
+                return CommandOutput::Error("Ghost mode not available in this context".into());
+            };
+            match args[1].to_ascii_lowercase().as_str() {
+                "on" | "enable" => {
+                    if let Some(pos) = current_pos {
+                        let eye = [pos[0] as f64, pos[1] as f64 + 1.62, pos[2] as f64];
+                        ghost.init_from_camera(eye, 0.0, 0.0, None);
+                        if let Some(anchor) = ghost_anchor {
+                            anchor.pin_player(
+                                "player",
+                                dimension,
+                                [pos[0] as f64, pos[1] as f64, pos[2] as f64],
+                            );
+                        }
+                    } else {
+                        ghost.set_active(true);
+                    }
+                    CommandOutput::Success("§b[Yefira] Ghost Mode ENABLED. Player pinned at anchor.".into())
+                }
+                "off" | "disable" => {
+                    ghost.set_active(false);
+                    if let Some(anchor) = ghost_anchor {
+                        anchor.unpin_player("player");
+                    }
+                    CommandOutput::Success("§7[Yefira] Ghost Mode DISABLED. Player restored.".into())
+                }
+                "toggle" => {
+                    let active = ghost.toggle();
+                    if active {
+                        if let (Some(pos), Some(anchor)) = (current_pos, ghost_anchor) {
+                            anchor.pin_player(
+                                "player",
+                                dimension,
+                                [pos[0] as f64, pos[1] as f64, pos[2] as f64],
+                            );
+                        }
+                        CommandOutput::Success("§b[Yefira] Ghost Mode ENABLED.".into())
+                    } else {
+                        if let Some(anchor) = ghost_anchor {
+                            anchor.unpin_player("player");
+                        }
+                        CommandOutput::Success("§7[Yefira] Ghost Mode DISABLED.".into())
+                    }
+                }
+                "status" => {
+                    let active = ghost.is_active();
+                    CommandOutput::Success(format!(
+                        "Ghost Mode: {}",
+                        if active { "ENABLED (Camera Free)" } else { "DISABLED" }
+                    ))
+                }
+                _ => CommandOutput::Error("Usage: /yefira ghost <on|off|toggle|status>".into()),
+            }
+        }
+
         _ => CommandOutput::Error(format!(
-            "Unknown subcommand '{}'. Use pos1, pos2, box, clear, refresh, status, server",
+            "Unknown subcommand '{}'. Use pos1, pos2, box, clear, refresh, status, server, ghost",
             args[0]
         )),
     }

@@ -75,6 +75,16 @@ impl SelectionManager {
         self.inner.read().current_selection.is_some()
     }
 
+    /// Returns pos1 if defined.
+    pub fn pos1(&self) -> Option<[i32; 3]> {
+        self.inner.read().pos1
+    }
+
+    /// Returns pos2 if defined.
+    pub fn pos2(&self) -> Option<[i32; 3]> {
+        self.inner.read().pos2
+    }
+
     /// Registers a selection change listener.
     pub fn add_listener<F>(&self, callback: F)
     where
